@@ -3,6 +3,7 @@
 
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { CATEGORIES, COLORS, seed, slugify } = require('./seed');
@@ -11,7 +12,9 @@ const PORT = Number(process.env.PORT) || 3000;
 const BRAND = process.env.BRAND || 'Nearbook';
 const CURRENCY = process.env.CURRENCY || 'USD';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const DATA_FILE = path.join(__dirname, 'data', 'db.json');
+// Serverless hosts (Vercel) only allow writes to the temp dir, and data there doesn't survive cold starts.
+const DATA_DIR = process.env.DATA_DIR || (process.env.VERCEL ? path.join(os.tmpdir(), 'nearbook') : path.join(__dirname, 'data'));
+const DATA_FILE = path.join(DATA_DIR, 'db.json');
 const SLOT_STEP = 30; // minutes between bookable start times
 const LEAD_TIME = 60; // minutes of notice required for same-day bookings
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -29,7 +32,7 @@ function load() {
     fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
     const data = seed();
     save(data);
-    console.log('Seeded demo data into data/db.json');
+    console.log(`Seeded demo data into ${DATA_FILE}`);
     return data;
   }
   return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
