@@ -1,0 +1,14 @@
+{
+  "name": "nearbook",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marketplace to discover, book and pay local service providers",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "reset": "node -e \"require('fs').rmSync('data/db.json',{force:true})\" && node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
