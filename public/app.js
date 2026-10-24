@@ -8,7 +8,7 @@ const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
 const WEEK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-let CONFIG = { brand: 'Nearbook', currency: 'USD', categories: [], areas: [] };
+let CONFIG = { brand: 'Nearbook', currency: 'USD', depositPercent: 30, categories: [], areas: [] };
 
 // ---------- utilities ----------
 
@@ -30,6 +30,9 @@ async function api(path, { method = 'GET', body, headers = {} } = {}) {
 
 const amount = (n) => new Intl.NumberFormat(undefined, { style: 'currency', currency: CONFIG.currency, minimumFractionDigits: n % 1 ? 2 : 0 }).format(n);
 const money = (n) => (n === 0 ? 'Free' : amount(n));
+// Same formula as server.js, so the deposit shown at checkout is the one recorded.
+const depositFor = (price) => Math.min(price, Math.ceil(Math.round(price * CONFIG.depositPercent) / 100));
+const payBadge = (pay) => `<span class="badge ${esc(pay.status)}">${pay.method === 'none' ? 'free' : esc(pay.status.replace('_', ' '))}</span>`;
 const isoDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parseDate = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
 const fmtDate = (iso, opts = { weekday: 'short', month: 'short', day: 'numeric' }) => parseDate(iso).toLocaleDateString(undefined, opts);
@@ -61,10 +64,17 @@ async function copy(text) {
 }
 
 const ICONS = {
-  'hair-beauty': '<path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
-  barbering: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/>',
+  'hair-beauty': '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/>',
   'spa-wellness': '<path d="M12 21c-4.4-1.6-8-5.4-8-10 3.4 0 6.2 1.6 8 4.2 1.8-2.6 4.6-4.2 8-4.2 0 4.6-3.6 8.4-8 10z"/><path d="M12 15.2C10.2 11.8 10.6 6.6 12 3c1.4 3.6 1.8 8.8 0 12.2"/>',
-  'local-services': '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.8-3.8a6 6 0 01-7.9 7.9l-6.9 6.9a2.1 2.1 0 01-3-3l6.9-6.9a6 6 0 017.9-7.9l-3.8 3.8z"/>',
+  'laundry-cleaning': '<rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="13" r="4.5"/><path d="M8 6.5h.01M11 6.5h.01"/>',
+  'home-repair': '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.8-3.8a6 6 0 01-7.9 7.9l-6.9 6.9a2.1 2.1 0 01-3-3l6.9-6.9a6 6 0 017.9-7.9l-3.8 3.8z"/>',
+  'waste-collection': '<path d="M4 7h16M9 7V4h6v3M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13M10 11v6M14 11v6"/>',
+  'photo-video': '<path d="M3 8a2 2 0 012-2h2l1.5-2h7L17 6h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><circle cx="12" cy="13" r="3.5"/>',
+  'moving-delivery': '<path d="M2 6h11v10H2zM13 10h4l4 4v2h-8"/><circle cx="6.5" cy="17.5" r="2"/><circle cx="17" cy="17.5" r="2"/>',
+  'appliance-phone-repair': '<rect x="6.5" y="2.5" width="11" height="19" rx="2"/><path d="M10.5 18.5h3"/>',
+  'events-entertainment': '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  'gardening-outdoor': '<path d="M12 21v-9"/><path d="M12 12C12 8 9 5 4 5c0 4 3 7 8 7zM12 14.5c0-3.5 2.5-6 7-6 0 3.5-2.5 6-7 6z"/>',
+  'student-academic': '<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5M22 9v6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
   pin: '<path d="M12 21s-7-6.1-7-11.5A7 7 0 0119 9.5C19 14.9 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
   home: '<path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6h-6v6H4a1 1 0 01-1-1z"/>',
@@ -108,23 +118,6 @@ function nextDays(n) {
   });
 }
 
-function luhn(num) {
-  let sum = 0;
-  for (let i = 0; i < num.length; i++) {
-    let d = Number(num[num.length - 1 - i]);
-    if (i % 2) { d *= 2; if (d > 9) d -= 9; }
-    sum += d;
-  }
-  return num.length >= 12 && sum % 10 === 0;
-}
-function cardBrand(num) {
-  if (/^4/.test(num)) return 'Visa';
-  if (/^(5[1-5]|2[2-7])/.test(num)) return 'Mastercard';
-  if (/^3[47]/.test(num)) return 'Amex';
-  if (/^(6011|65)/.test(num)) return 'Discover';
-  return 'Card';
-}
-
 function downloadIcs(b) {
   const start = parseDate(b.date);
   const [h, m] = b.time.split(':').map(Number);
@@ -153,13 +146,13 @@ const errorBox = (msg) => `<div class="form-error" role="alert">${esc(msg)}</div
 
 async function homeView() {
   const { providers } = await api('/providers?sort=rating&limit=8');
-  const popular = ['Knotless braids', 'Skin fade', 'Gel manicure', 'Massage', 'Lashes', 'Deep clean', 'Plumber'];
+  const popular = ['Knotless braids', 'Skin fade', 'Laundry', 'Plumbing', 'Phone repair', 'DJ', 'Tutoring'];
   const totalProviders = CONFIG.categories.reduce((s, c) => s + (c.count || 0), 0);
-  const tints = ['#ffe2cf', '#e4ecdc', '#f4e1ee', '#e2eaf3'];
-  const inks = ['#c2410c', '#4d7c3a', '#9d3a7a', '#2f5f8f'];
+  const tints = ['#ffe2cf', '#e4ecdc', '#f4e1ee', '#e2eaf3', '#fbeccb', '#dcefec'];
+  const inks = ['#c2410c', '#4d7c3a', '#9d3a7a', '#2f5f8f', '#a16207', '#0f766e'];
   const faqs = [
-    ['Do I have to pay when I book?', 'No. Most providers let you choose: pay securely by card when you book, or pay them at the appointment in cash or by transfer.'],
-    ['Can I cancel or move a booking?', 'Yes. Cancelling is free until your appointment starts, and card payments are refunded automatically. Open My bookings, cancel, then pick a new time.'],
+    ['Do I have to pay when I book?', `Only a deposit. You make an initial deposit (${CONFIG.depositPercent}% of the price) to secure your booking, then complete payment after the service.`],
+    ['Can I cancel or move a booking?', 'Yes. Cancelling is free until your appointment starts, and your deposit is refunded. Open My bookings, cancel, then pick a new time.'],
     ['Can someone come to my home?', 'Many providers offer home visits. Tick "Comes to me" in search and choose Home visit at checkout. Then add your address.'],
     ['Are the reviews real?', `Only customers who booked through ${esc(CONFIG.brand)} can leave a review, and only after their appointment. Look for the "Booked on ${esc(CONFIG.brand)}" label.`],
     ['Do I need an account?', 'No. Your confirmation and bookings are linked to the email you book with. Enter it in My bookings to see your appointments.'],
@@ -176,9 +169,9 @@ async function homeView() {
         <div>
           <span class="chip">${icon('pin', 14)} Local providers, booked in seconds</span>
           <h1>Book <em>local</em> pros without the back&#8209;and&#8209;forth.</h1>
-          <p class="lead">Hair, nails, barbers, massage, cleaners, plumbers and more. See real prices and open times, pick a slot and pay your way. Many of these providers don't have a website of their own.</p>
+          <p class="lead">Hair and barbers, laundry, plumbers, movers, DJs, tutors and more. See real prices and open times, pick a slot and secure it with a small deposit. Many of these providers don't have a website of their own.</p>
           <form class="searchbar" id="heroSearch">
-            <div class="field">${icon('search')}<input name="q" placeholder="What do you need? e.g. braids, fade" aria-label="Service"></div>
+            <div class="field">${icon('search')}<input name="q" placeholder="What do you need? e.g. braids, laundry, DJ" aria-label="Service"></div>
             <div class="field">${icon('pin')}<select name="area" aria-label="Area"><option value="">Any area</option>${CONFIG.areas.map((a) => `<option>${esc(a)}</option>`).join('')}</select></div>
             <button class="btn">Search</button>
           </form>
@@ -208,6 +201,7 @@ async function homeView() {
         ${CONFIG.categories.map((c, i) => `
           <a class="cat-card" href="#/search?category=${c.id}" style="--tint:${tints[i % tints.length]};--ink-c:${inks[i % inks.length]}">
             <div class="cat-art">
+              ${icon(c.id, 64)}
               <img src="/img/cat-${esc(c.id)}.jpg" alt="" loading="lazy" onerror="this.remove()">
               <span class="cat-sticker">${icon(c.id, 22)}<b>${c.count}</b> provider${c.count === 1 ? '' : 's'}</span>
             </div>
@@ -231,7 +225,7 @@ async function homeView() {
         <ol class="numbered">
           <li><span>1</span><div><b>Discover.</b> Search by service and area, compare prices and read verified reviews.</div></li>
           <li><span>2</span><div><b>Book a real slot.</b> Live availability means the time you pick is actually free.</div></li>
-          <li><span>3</span><div><b>Pay your way.</b> Pay by card when you book, or pay the provider on the day.</div></li>
+          <li><span>3</span><div><b>Pay a deposit.</b> Make your initial deposit to secure your booking, and complete payment after the service.</div></li>
           <li><span>4</span><div><b>Review.</b> After your appointment, help others find great local pros.</div></li>
         </ol>
       </div>
@@ -242,7 +236,7 @@ async function homeView() {
           <div class="summary-line"><span>Service</span><b>Gel manicure</b></div>
           <div class="summary-line"><span>When</span><span>${fmtDate(week[2].iso)} · ${fmtTime('11:30')}</span></div>
           <div class="summary-line"><span>Where</span><span>Home visit</span></div>
-          <div class="summary-line"><span>Payment</span><span class="badge due">pay on day</span></div>
+          <div class="summary-line"><span>Payment</span><span class="badge deposit_paid">deposit paid</span></div>
         </div>
         <div class="ticket ticket-back"><b>How was your gel manicure?</b><div class="stars" style="--r:80%;font-size:1.4rem;margin:8px 0;display:block">★★★★★</div><span class="muted small">Your review helps neighbours choose.</span></div>
       </div>
@@ -278,7 +272,7 @@ async function homeView() {
         <p class="lead-sm">Get a free booking page your customers can use straight away. Put it in your Instagram bio, WhatsApp status or TikTok and take bookings around the clock.</p>
         <ul class="ticks">
           <li>${icon('check', 18)} Your own link with services, prices and hours</li>
-          <li>${icon('check', 18)} Card payments or pay-on-the-day</li>
+          <li>${icon('check', 18)} Deposits that secure every booking</li>
           <li>${icon('check', 18)} A simple dashboard for your appointments</li>
           <li>${icon('check', 18)} Home-visit and mobile services supported</li>
         </ul>
@@ -367,6 +361,10 @@ async function searchView(_, params) {
       };
       form.addEventListener('submit', (e) => { e.preventDefault(); apply(); });
       $$('select, input[type=checkbox]', form).forEach((el) => el.addEventListener('change', apply));
+      // On phones the pills scroll sideways; bring the selected category into view.
+      const pills = $('.cat-pills');
+      const current = $('.cat-pills a.active');
+      document.fonts.ready.then(() => { pills.scrollLeft += current.getBoundingClientRect().left - pills.getBoundingClientRect().left - 16; });
     },
   };
 }
@@ -438,6 +436,9 @@ async function bookView([slug, serviceId]) {
   const saved = store.get('nb_customer', {});
   const state = { date: null, time: null };
   const free = svc.price === 0;
+  const deposit = depositFor(svc.price);
+  const balance = Math.round((svc.price - deposit) * 100) / 100;
+  const submitLabel = free ? 'Confirm booking' : `Pay ${money(deposit)} deposit & book`;
 
   const summaryHtml = () => `
     <div class="summary-prov">${avatar(p)}<div><b>${esc(p.name)}</b><div class="muted small">${esc(p.area)}</div></div></div>
@@ -446,7 +447,9 @@ async function bookView([slug, serviceId]) {
     <div class="summary-line"><span>Date</span><span>${state.date ? fmtDate(state.date, { weekday: 'long', month: 'long', day: 'numeric' }) : '—'}</span></div>
     <div class="summary-line"><span>Time</span><span>${state.time ? fmtTime(state.time) : '—'}</span></div>
     <div class="summary-line summary-total"><span>Total</span><span>${money(svc.price)}</span></div>
-    <div class="secure">${icon('shield', 16)} Free cancellation until your appointment starts.</div>`;
+    ${free ? '' : `<div class="summary-line"><span>Deposit to book</span><b>${money(deposit)}</b></div>
+    <div class="summary-line"><span>Pay after service</span><span>${money(balance)}</span></div>`}
+    <div class="secure">${icon('shield', 16)} Free cancellation until your appointment starts${free ? '' : ', and your deposit is refunded'}.</div>`;
 
   return {
     html: `
@@ -482,21 +485,15 @@ async function bookView([slug, serviceId]) {
             <label>Email <span class="hint">· your confirmation goes here</span><input name="email" type="email" required autocomplete="email" value="${esc(saved.email || store.get('nb_email', ''))}"></label>
             <label>Notes for the provider <span class="hint">(optional)</span><textarea name="notes" placeholder="Hair length, allergies, access instructions…"></textarea></label>
 
-            <div class="step-title" style="margin-top:10px"><span class="num">4</span><h2>Payment</h2></div>
+            <div class="step-title" style="margin-top:10px"><span class="num">4</span><h2>${free ? 'Payment' : 'Deposit'}</h2></div>
             ${free ? '<p class="muted">This service is free, so you don\'t need to pay anything.</p>' : `
-            <div class="choice-row">
-              <label class="choice"><input type="radio" name="payMethod" value="card" checked><div><b>Pay now by card</b><span>Secure checkout, instant confirmation</span></div></label>
-              <label class="choice"><input type="radio" name="payMethod" value="cash"><div><b>Pay at appointment</b><span>Cash or transfer on the day</span></div></label>
+            <p class="muted">Make your initial deposit to secure your booking, and complete payment after the service.</p>
+            <div class="deposit-box">
+              <div class="summary-line"><span>Deposit now (${CONFIG.depositPercent}%)</span><b>${money(deposit)}</b></div>
+              <div class="summary-line"><span>Balance after service</span><span>${money(balance)}</span></div>
             </div>
-            <div class="card-fields" id="cardFields">
-              <div class="demo-note">Demo checkout: nothing is charged. Use test card 4242 4242 4242 4242 with any future expiry date.</div>
-              <label>Card number<input name="cardNumber" inputmode="numeric" autocomplete="cc-number" placeholder="1234 1234 1234 1234" maxlength="23"></label>
-              <div class="row">
-                <label>Expiry<input name="cardExp" inputmode="numeric" autocomplete="cc-exp" placeholder="MM / YY" maxlength="7"></label>
-                <label>CVC<input name="cardCvc" inputmode="numeric" autocomplete="cc-csc" placeholder="123" maxlength="4"></label>
-              </div>
-            </div>`}
-            <button class="btn btn-block" id="submitBtn">${free ? 'Confirm booking' : `Confirm & pay ${money(svc.price)}`}</button>
+            <div class="demo-note">Demo checkout: no money is charged yet.</div>`}
+            <button class="btn btn-block" id="submitBtn">${submitLabel}</button>
           </form>
         </div>
         <aside class="card summary" id="summary">${summaryHtml()}</aside>
@@ -569,15 +566,6 @@ async function bookView([slug, serviceId]) {
 
       form.addEventListener('change', (e) => {
         if (e.target.name === 'location') $('#addressField').hidden = e.target.value !== 'home';
-        if (e.target.name === 'payMethod') $('#cardFields').hidden = e.target.value !== 'card';
-      });
-      form.addEventListener('input', (e) => {
-        if (e.target.name === 'cardNumber') e.target.value = e.target.value.replace(/\D/g, '').slice(0, 19).replace(/(\d{4})(?=\d)/g, '$1 ');
-        if (e.target.name === 'cardExp') {
-          const v = e.target.value.replace(/\D/g, '').slice(0, 4);
-          e.target.value = v.length > 2 ? `${v.slice(0, 2)} / ${v.slice(2)}` : v;
-        }
-        if (e.target.name === 'cardCvc') e.target.value = e.target.value.replace(/\D/g, '');
       });
 
       form.addEventListener('submit', async (e) => {
@@ -590,29 +578,15 @@ async function bookView([slug, serviceId]) {
         const location = fd.location || 'venue';
         if (location === 'home' && !(fd.address || '').trim()) return showError('Please enter the address for your home visit.');
 
-        let payment = { method: 'none' };
-        if (!free) {
-          payment = { method: fd.payMethod };
-          if (fd.payMethod === 'card') {
-            const num = (fd.cardNumber || '').replace(/\D/g, '');
-            const [mm, yy] = (fd.cardExp || '').split('/').map((s) => Number(s.trim()));
-            const expEnd = new Date(2000 + yy, mm, 1);
-            if (!luhn(num)) return showError('That card number doesn\'t look right.');
-            if (!(mm >= 1 && mm <= 12) || !yy || expEnd <= new Date()) return showError('Please enter a valid, unexpired expiry date.');
-            if (!/^\d{3,4}$/.test(fd.cardCvc || '')) return showError('Please enter the 3 or 4 digit security code.');
-            payment = { method: 'card', last4: num.slice(-4), brand: cardBrand(num) };
-          }
-        }
-
         const btn = $('#submitBtn');
         btn.disabled = true;
-        btn.textContent = payment.method === 'card' ? 'Processing payment…' : 'Booking…';
+        btn.textContent = free ? 'Booking…' : 'Processing deposit…';
         try {
           const booking = await api('/bookings', {
             method: 'POST',
             body: {
               providerId: p.id, serviceId: svc.id, date: state.date, time: state.time, location,
-              address: fd.address, notes: fd.notes, payment,
+              address: fd.address, notes: fd.notes,
               customer: { name: fd.name, email: fd.email, phone: fd.phone },
             },
           });
@@ -621,7 +595,7 @@ async function bookView([slug, serviceId]) {
           showConfirmation(booking);
         } catch (err) {
           btn.disabled = false;
-          btn.textContent = free ? 'Confirm booking' : `Confirm & pay ${money(svc.price)}`;
+          btn.textContent = submitLabel;
           showError(err.message);
           if (err.status === 409) { state.time = null; refreshSummary(); loadSlots(); }
         }
@@ -632,11 +606,9 @@ async function bookView([slug, serviceId]) {
 
 function showConfirmation(b) {
   const where = b.location === 'home' ? `Home visit: ${b.address}` : (b.provider.address || 'At the venue');
-  const payLabel = {
-    card: `Paid ${money(b.price)} · ${b.payment.brand} •••• ${b.payment.last4}`,
-    cash: `${money(b.price)} due at your appointment`,
-    none: 'Free, nothing to pay',
-  }[b.payment.method];
+  const payLabel = b.payment.method === 'deposit'
+    ? `Deposit of ${money(b.payment.deposit)} paid.${b.payment.balance ? ` Pay the remaining ${money(b.payment.balance)} after your service.` : ''}`
+    : 'Free, nothing to pay';
   $('#app').innerHTML = `
     <div class="wrap confirm">
       <div class="confirm-icon">${icon('check', 36)}</div>
@@ -648,7 +620,7 @@ function showConfirmation(b) {
         <div class="summary-line"><span>When</span><span>${fmtDate(b.date, { weekday: 'long', month: 'long', day: 'numeric' })} at ${fmtTime(b.time)}</span></div>
         <div class="summary-line"><span>Duration</span><span>${fmtDuration(b.duration)}</span></div>
         <div class="summary-line"><span>Where</span><span style="text-align:right">${esc(where)}</span></div>
-        <div class="summary-line"><span>Payment</span><span><span class="badge ${b.payment.status}">${b.payment.status}</span></span></div>
+        <div class="summary-line"><span>Payment</span><span>${payBadge(b.payment)}</span></div>
         <p class="muted small" style="margin:10px 0 0">${esc(payLabel)}</p>
       </div>
       <div class="btn-row">
@@ -695,8 +667,8 @@ async function bookingsView() {
         <div class="when" style="margin-top:6px">${fmtDate(b.date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} · ${fmtTime(b.time)} · ${fmtDuration(b.duration)}</div>
         <div class="meta" style="margin-top:6px">
           <span class="badge ${b.status}">${b.status.replace('_', '-')}</span>
-          <span class="badge ${b.payment.status}">${b.payment.method === 'none' ? 'free' : b.payment.status}</span>
-          <span>${money(b.price)}</span>
+          ${payBadge(b.payment)}
+          <span>${b.status === 'confirmed' && b.payment.status === 'deposit_paid' && b.payment.balance ? `${money(b.price)} · ${money(b.payment.balance)} due after service` : money(b.price)}</span>
           ${b.location === 'home' ? `<span class="sep">•</span><span>Home visit</span>` : ''}
         </div>
       </div>
@@ -747,7 +719,7 @@ async function bookingsView() {
 
         if (btn.dataset.act === 'ics') return downloadIcs(b);
         if (btn.dataset.act === 'cancel') {
-          if (!window.confirm(`Cancel ${b.serviceName} on ${fmtDate(b.date)}?${b.payment.method === 'card' ? ' Your card payment will be refunded.' : ''}`)) return;
+          if (!window.confirm(`Cancel ${b.serviceName} on ${fmtDate(b.date)}?${b.payment.status === 'deposit_paid' ? ' Your deposit will be refunded.' : ''}`)) return;
           try { replace(await api(`/bookings/${b.id}/cancel`, { method: 'POST', body: { email } })); toast('Booking cancelled'); }
           catch (err) { toast(err.message); }
         }
@@ -799,9 +771,10 @@ function joinView(_, params) {
           <section class="card form-section">
             <h2>Your business</h2><p class="muted">This is what customers will see.</p>
             <label>Business name<input name="name" required placeholder="e.g. Amara's Braid Studio" maxlength="80" value="${esc(params.get('name') || '')}"></label>
-            <div class="cat-select">
-              ${CONFIG.categories.map((c, i) => `<label class="choice"><input type="radio" name="category" value="${c.id}" ${i === 0 ? 'checked' : ''}><div><b>${esc(c.name)}</b></div></label>`).join('')}
-            </div>
+            <label>Category<select name="category" id="catSelect" required>
+              <option value="">Choose the one that fits best</option>
+              ${CONFIG.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+            </select><span class="hint" id="catHint">Customers browse by category, so pick the closest match.</span></label>
             <label>Tagline <span class="hint">(one line about what you do)</span><input name="tagline" maxlength="120" placeholder="e.g. Neat, long-lasting braids for all ages"></label>
             <label>About <span class="hint">(optional)</span><textarea name="about" maxlength="1500" placeholder="Experience, specialities, what to expect…"></textarea></label>
           </section>
@@ -839,7 +812,7 @@ function joinView(_, params) {
           <div class="info-list" style="margin-top:12px">
             <div>${icon('share', 18)}<span><b>Your own link</b> to share on Instagram, WhatsApp, TikTok or Google</span></div>
             <div>${icon('clock', 18)}<span><b>24/7 bookings</b> with no back-and-forth messages</span></div>
-            <div>${icon('shield', 18)}<span><b>Get paid upfront</b> by card, or let customers pay on the day</span></div>
+            <div>${icon('shield', 18)}<span><b>Fewer no-shows.</b> Customers pay a deposit to secure their booking and the balance after the service</span></div>
             <div>${icon('search', 18)}<span><b>Get discovered</b> by new customers searching your area</span></div>
           </div>
         </aside>
@@ -848,6 +821,10 @@ function joinView(_, params) {
 
     mount() {
       const form = $('#joinForm');
+      $('#catSelect').addEventListener('change', (e) => {
+        const c = CONFIG.categories.find((x) => x.id === e.target.value);
+        $('#catHint').textContent = c ? c.description : 'Customers browse by category, so pick the closest match.';
+      });
       $('#addSvc').addEventListener('click', () => $('#svcList').insertAdjacentHTML('beforeend', svcRow()));
       $('#svcList').addEventListener('click', (e) => {
         if (!e.target.matches('[data-remove]')) return;
@@ -966,12 +943,13 @@ async function dashboardView([id], params) {
   const statsHtml = () => {
     const upcoming = bookings.filter((b) => b.status === 'confirmed' && !b.started);
     const month = isoDate(new Date()).slice(0, 7);
-    const earned = bookings.filter((b) => b.payment.status === 'paid' && b.status !== 'cancelled' && b.date.startsWith(month)).reduce((s, b) => s + b.price, 0);
-    const due = upcoming.filter((b) => b.payment.status === 'due').reduce((s, b) => s + b.price, 0);
+    const received = (b) => (b.payment.status === 'paid' ? b.price : b.payment.status === 'deposit_paid' ? b.payment.deposit : 0);
+    const earned = bookings.filter((b) => b.status !== 'cancelled' && b.date.startsWith(month)).reduce((s, b) => s + received(b), 0);
+    const due = upcoming.filter((b) => b.payment.status === 'deposit_paid').reduce((s, b) => s + b.payment.balance, 0);
     return `
       <div class="card stat"><div class="label">Upcoming appointments</div><div class="value">${upcoming.length}</div></div>
-      <div class="card stat"><div class="label">Paid this month</div><div class="value">${amount(earned)}</div></div>
-      <div class="card stat"><div class="label">To collect on the day</div><div class="value">${due ? money(due) : '—'}</div></div>
+      <div class="card stat"><div class="label">Received this month</div><div class="value">${amount(earned)}</div><div class="muted small">Deposits and balances</div></div>
+      <div class="card stat"><div class="label">To collect after service</div><div class="value">${due ? money(due) : '—'}</div></div>
       <div class="card stat"><div class="label">Rating</div><div class="value">${p.rating ? `${p.rating.toFixed(1)} ★` : '—'}</div><div class="muted small">${p.reviewCount} reviews</div></div>`;
   };
 
@@ -989,7 +967,7 @@ async function dashboardView([id], params) {
           <td><b>${fmtDate(b.date)}</b><br><span class="muted">${fmtTime(b.time)} · ${fmtDuration(b.duration)}</span></td>
           <td><b>${esc(b.customer.name)}</b><br><span class="muted small">${esc(b.customer.phone || b.customer.email)}</span>${b.location === 'home' ? `<br><span class="tag">${icon('home', 12)} ${esc(b.address)}</span>` : ''}${b.notes ? `<br><span class="muted small">“${esc(b.notes)}”</span>` : ''}</td>
           <td>${esc(b.serviceName)}<br><span class="muted small">Ref ${esc(b.ref)}</span></td>
-          <td>${money(b.price)}<br><span class="badge ${b.payment.status}">${b.payment.method === 'cash' && b.payment.status === 'due' ? 'pay on day' : b.payment.status}</span></td>
+          <td>${money(b.price)}<br>${payBadge(b.payment)}${b.status === 'confirmed' && b.payment.status === 'deposit_paid' && b.payment.balance ? `<br><span class="muted small">${money(b.payment.balance)} after service</span>` : ''}</td>
           <td><span class="badge ${b.status}">${b.status.replace('_', '-')}</span></td>
           <td><div class="actions">${b.status === 'confirmed' ? `
             ${b.started ? '<button class="btn btn-sm" data-status="completed">Complete</button><button class="btn btn-ghost btn-sm" data-status="no_show">No-show</button>' : ''}
@@ -1010,7 +988,7 @@ async function dashboardView([id], params) {
       <div class="card pad" style="margin-bottom:22px">
         <h3>Your booking link</h3>
         <div class="share-box"><code>${esc(shareUrl(p.slug))}</code><button class="btn btn-sm" id="copyLink">Copy link</button></div>
-        <p class="muted small" style="margin:6px 0 0">Share it anywhere. Customers can see your services, pick a time and pay.</p>
+        <p class="muted small" style="margin:6px 0 0">Share it anywhere. Customers can see your services, pick a time and pay a deposit to book.</p>
       </div>
       <div class="stat-grid" id="stats">${statsHtml()}</div>
       <div class="card pad">
@@ -1041,7 +1019,7 @@ async function dashboardView([id], params) {
         if (!btn) return;
         const bid = btn.closest('tr').dataset.id;
         const b = bookings.find((x) => x.id === bid);
-        if (btn.dataset.status === 'cancelled' && !window.confirm(`Cancel ${b.customer.name}'s booking? ${b.payment.method === 'card' ? 'Their card payment will be refunded.' : ''}`)) return;
+        if (btn.dataset.status === 'cancelled' && !window.confirm(`Cancel ${b.customer.name}'s booking? ${b.payment.status === 'deposit_paid' ? 'Their deposit will be refunded.' : ''}`)) return;
         try {
           const updated = await api(`/manage/${p.id}/bookings/${bid}`, { method: 'POST', headers, body: { status: btn.dataset.status } });
           bookings = bookings.map((x) => (x.id === bid ? updated : x));

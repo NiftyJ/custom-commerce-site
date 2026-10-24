@@ -11,6 +11,7 @@ const { CATEGORIES, COLORS, seed, slugify } = require('./seed');
 const PORT = Number(process.env.PORT) || 3000;
 const BRAND = process.env.BRAND || 'Nearbook';
 const CURRENCY = process.env.CURRENCY || 'USD';
+const DEPOSIT_PERCENT = Math.min(Math.max(Number(process.env.DEPOSIT_PERCENT) || 30, 1), 100);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 // Serverless hosts (Vercel) only allow writes to the temp dir, and data there doesn't survive cold starts.
 const DATA_DIR = process.env.DATA_DIR || (process.env.VERCEL ? path.join(os.tmpdir(), 'nearbook') : path.join(__dirname, 'data'));
@@ -55,6 +56,8 @@ const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + 
 const toHHMM = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const pad = (n) => String(n).padStart(2, '0');
 const newId = (prefix) => `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
+// Whole-unit deposit taken at booking. public/app.js uses the same formula to show it at checkout.
+const depositFor = (price) => Math.min(price, Math.ceil(Math.round(price * DEPOSIT_PERCENT) / 100));
 
 function nowLocal() {
   const d = new Date();
@@ -142,6 +145,7 @@ const route = (method, pattern, handler) =>
 route('GET', '/api/config', () => ({
   brand: BRAND,
   currency: CURRENCY,
+  depositPercent: DEPOSIT_PERCENT,
   categories: CATEGORIES.map((c) => ({ ...c, count: db.providers.filter((p) => p.category === c.id).length })),
   areas: [...new Set(db.providers.map((p) => p.area))].sort(),
 }));
@@ -269,15 +273,13 @@ route('POST', '/api/bookings', ({ body }) => {
   const address = location === 'home' ? str(body.address, 200) : '';
   if (location === 'home' && !address) fail(400, 'Address is required for a home visit');
 
-  const pay = body.payment || {};
   let payment;
   if (service.price === 0) payment = { method: 'none', status: 'paid' };
-  else if (pay.method === 'card') {
-    if (!/^\d{4}$/.test(String(pay.last4))) fail(400, 'Card details are incomplete');
-    // Demo payment: a real deployment would confirm a Stripe PaymentIntent here.
-    payment = { method: 'card', status: 'paid', last4: String(pay.last4), brand: str(pay.brand, 20) || 'Card', txn: newId('txn') };
-  } else if (pay.method === 'cash') payment = { method: 'cash', status: 'due' };
-  else fail(400, 'Choose a payment method');
+  else {
+    // Demo deposit: a real deployment would confirm the deposit with Paystack/Flutterwave/Stripe here.
+    const deposit = depositFor(service.price);
+    payment = { method: 'deposit', status: 'deposit_paid', deposit, balance: Math.round((service.price - deposit) * 100) / 100, txn: newId('txn') };
+  }
 
   const booking = {
     id: newId('b'),
@@ -323,7 +325,7 @@ route('POST', '/api/bookings/:id/cancel', ({ params, body }) => {
   const b = customerOwned(params.id, body.email);
   if (!customerBooking(b).canCancel) fail(400, 'This booking can no longer be cancelled');
   b.status = 'cancelled';
-  if (b.payment.method === 'card') b.payment.status = 'refunded';
+  if (b.payment.status === 'deposit_paid') b.payment.status = 'refunded';
   save(db);
   return customerBooking(b);
 });
@@ -364,8 +366,9 @@ route('POST', '/api/manage/:id/bookings/:bid', ({ req, params, body }) => {
   if (!['completed', 'no_show', 'cancelled'].includes(body.status)) fail(400, 'Invalid status');
   if (body.status !== 'cancelled' && !hasStarted(b)) fail(400, 'This appointment has not started yet');
   b.status = body.status;
-  if (b.status === 'completed' && b.payment.method === 'cash') b.payment.status = 'paid';
-  if (b.status === 'cancelled' && b.payment.method === 'card') b.payment.status = 'refunded';
+  // A no-show keeps the deposit; completing means the balance was collected after the service.
+  if (b.status === 'completed' && b.payment.status === 'deposit_paid') b.payment.status = 'paid';
+  if (b.status === 'cancelled' && b.payment.status === 'deposit_paid') b.payment.status = 'refunded';
   save(db);
   return { ...b, started: hasStarted(b) };
 });
