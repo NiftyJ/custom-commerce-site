@@ -4,6 +4,8 @@ A marketplace where people can discover, book and pay local service providers, i
 
 Categories: **Beauty, Hair & Barbering**, **Spa, Wellness & Fitness**, **Laundry & Home Cleaning**, **Plumbing, Electrical & Home Repair**, **Waste & Garbage Collection**, **Photography & Videography**, **Moving, Delivery & Errands**, **Appliance & Phone Repairs**, **Events & Entertainment**, **Gardening & Outdoor Services**, **Student & Academic Services**. Edit them in `seed.js`.
 
+The demo is set in Accra: 32 seeded providers across Osu, East Legon, Labone, Madina, Spintex, Dansoman, Jamestown and Legon, with prices in Ghana cedis (GH₵). The look draws on kente and Adinkra (green, gold and clay palette, kente strips and an Adinkra symbol pattern behind the page).
+
 ## Run it
 
 ```
@@ -13,7 +15,7 @@ npm run reset        # wipe data/db.json and reseed demo providers
 
 Requires Node 18+. There are no dependencies.
 
-Optional environment variables: `PORT`, `BRAND` (display name), `CURRENCY` (ISO code, e.g. `GBP`, `NGN`, `KES`), `DEPOSIT_PERCENT` (share of the price paid as a deposit at booking, default `30`).
+Optional environment variables: `PORT`, `BRAND` (display name), `CURRENCY` (ISO code, default `GHS`; e.g. `NGN`, `KES`, `GBP`), `DEPOSIT_PERCENT` (share of the price paid as a deposit at booking, default `30`).
 
 ## What's in it
 
@@ -41,7 +43,13 @@ public/          Single-page frontend (index.html, app.js, styles.css)
 data/db.json     Created on first run
 ```
 
-Home page photos in `public/img/` are free stock from [Unsplash](https://unsplash.com/license) (no attribution required). Category cards load `cat-<category-id>.jpg` and show the category icon when there's no photo, so add or swap photos by dropping in files with those names.
+## Photos
+
+Photos in `public/img/` are mostly Creative Commons photos of Ghana from Wikimedia Commons and Openverse, plus two from Unsplash. Many are CC BY / CC BY-SA, which require attribution, so every photo is listed with its creator, licence and source in `public/img/credits.json`. That list is shown on the Photo credits page (`/#/credits`, linked in the footer). If you add or swap a photo, update its entry.
+
+- Provider cards and profile covers load `public/img/providers/<slug>.jpg`, where the slug comes from the seeded business name (e.g. `akosuas-braid-studio.jpg`).
+- Providers without their own photo, such as new sign-ups, fall back to their category photo, `cat-<category-id>.jpg`.
+- If neither photo exists, cards show the category icon on a coloured background.
 
 ## Before going live
 

@@ -8,7 +8,7 @@ const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
 const WEEK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-let CONFIG = { brand: 'Nearbook', currency: 'USD', depositPercent: 30, categories: [], areas: [] };
+let CONFIG = { brand: 'Nearbook', currency: 'GHS', depositPercent: 30, categories: [], areas: [] };
 
 // ---------- utilities ----------
 
@@ -28,7 +28,8 @@ async function api(path, { method = 'GET', body, headers = {} } = {}) {
   return data;
 }
 
-const amount = (n) => new Intl.NumberFormat(undefined, { style: 'currency', currency: CONFIG.currency, minimumFractionDigits: n % 1 ? 2 : 0 }).format(n);
+// narrowSymbol shows cedis the local way (GH₵450) rather than "GHS 450".
+const amount = (n) => new Intl.NumberFormat(undefined, { style: 'currency', currency: CONFIG.currency, currencyDisplay: 'narrowSymbol', minimumFractionDigits: n % 1 ? 2 : 0 }).format(n);
 const money = (n) => (n === 0 ? 'Free' : amount(n));
 // Same formula as server.js, so the deposit shown at checkout is the one recorded.
 const depositFor = (price) => Math.min(price, Math.ceil(Math.round(price * CONFIG.depositPercent) / 100));
@@ -47,6 +48,8 @@ function fmtDuration(min) {
 const catName = (id) => (CONFIG.categories.find((c) => c.id === id) || {}).name || '';
 const initials = (name) => name.replace(/[^\p{L}\s]/gu, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const avatar = (p, size = '') => `<div class="avatar ${size}" style="--c:${esc(p.color)}">${esc(initials(p.name))}</div>`;
+// Providers without their own photo (new sign-ups) borrow their category's photo.
+const photoFor = (p) => p.photo || `/img/cat-${p.category}.jpg`;
 const stars = (rating) => `<span class="stars" style="--r:${((rating || 0) / 5) * 100}%" aria-label="${rating || 0} out of 5">★★★★★</span>`;
 const shareUrl = (slug) => `${location.origin}/p/${slug}`;
 
@@ -88,8 +91,14 @@ const icon = (name, size = 20) => `<svg viewBox="0 0 24 24" width="${size}" heig
 
 function providerCard(p) {
   return `<a class="card pcard" href="#/p/${esc(p.slug)}">
-    <div class="pcard-cover" style="--c:${esc(p.color)}">${avatar(p, 'lg')}<span class="chip">${esc(catName(p.category))}</span></div>
+    <div class="pcard-media" style="--c:${esc(p.color)}">
+      ${icon(p.category, 44)}
+      <img src="${esc(photoFor(p))}" alt="" loading="lazy" onerror="this.remove()">
+      ${p.rating ? `<span class="pcard-rating">★ ${p.rating.toFixed(1)}</span>` : ''}
+      <span class="chip">${esc(catName(p.category))}</span>
+    </div>
     <div class="pcard-body">
+      ${avatar(p)}
       <h3>${esc(p.name)}</h3>
       <p>${esc(p.tagline)}</p>
       <div class="meta">
@@ -146,10 +155,11 @@ const errorBox = (msg) => `<div class="form-error" role="alert">${esc(msg)}</div
 
 async function homeView() {
   const { providers } = await api('/providers?sort=rating&limit=8');
-  const popular = ['Knotless braids', 'Skin fade', 'Laundry', 'Plumbing', 'Phone repair', 'DJ', 'Tutoring'];
+  const popular = ['Knotless braids', 'Skin fade', 'Laundry', 'Okada delivery', 'Phone repair', 'DJ', 'WASSCE prep'];
   const totalProviders = CONFIG.categories.reduce((s, c) => s + (c.count || 0), 0);
-  const tints = ['#ffe2cf', '#e4ecdc', '#f4e1ee', '#e2eaf3', '#fbeccb', '#dcefec'];
-  const inks = ['#c2410c', '#4d7c3a', '#9d3a7a', '#2f5f8f', '#a16207', '#0f766e'];
+  // Kente-inspired sticker colours: gold, green, red, earth, indigo, plum.
+  const tints = ['#fde3a7', '#d4eadc', '#f9d4c8', '#f1e1c8', '#d8e4ef', '#ecdcef'];
+  const inks = ['#9a6400', '#0b6e4f', '#b3311a', '#7a4a1e', '#1f5f8b', '#6d3b8c'];
   const faqs = [
     ['Do I have to pay when I book?', `Only a deposit. You make an initial deposit (${CONFIG.depositPercent}% of the price) to secure your booking, then complete payment after the service.`],
     ['Can I cancel or move a booking?', 'Yes. Cancelling is free until your appointment starts, and your deposit is refunded. Open My bookings, cancel, then pick a new time.'],
@@ -159,7 +169,7 @@ async function homeView() {
     ['I run a business. What does it cost to list?', 'Creating your booking page is free. Add your services, prices and hours, and you\'ll get a link you can share right away.'],
   ];
   const lead = providers[0];
-  const leadSvc = lead && lead.priceFrom ? money(lead.priceFrom) : money(35);
+  const leadSvc = lead && lead.priceFrom ? money(lead.priceFrom) : money(150);
   const week = nextDays(5);
 
   return {
@@ -167,9 +177,9 @@ async function homeView() {
     <section class="hero">
       <div class="wrap hero-grid">
         <div>
-          <span class="chip">${icon('pin', 14)} Local providers, booked in seconds</span>
+          <span class="chip">${icon('pin', 14)} Akwaaba! Local pros across Accra</span>
           <h1>Book <em>local</em> pros without the back&#8209;and&#8209;forth.</h1>
-          <p class="lead">Hair and barbers, laundry, plumbers, movers, DJs, tutors and more. See real prices and open times, pick a slot and secure it with a small deposit. Many of these providers don't have a website of their own.</p>
+          <p class="lead">Braiders and barbers, laundry, plumbers, okada errands, DJs, tutors and more. See real prices and open times, pick a slot and secure it with a small deposit. Many of these providers don't have a website of their own.</p>
           <form class="searchbar" id="heroSearch">
             <div class="field">${icon('search')}<input name="q" placeholder="What do you need? e.g. braids, laundry, DJ" aria-label="Service"></div>
             <div class="field">${icon('pin')}<select name="area" aria-label="Area"><option value="">Any area</option>${CONFIG.areas.map((a) => `<option>${esc(a)}</option>`).join('')}</select></div>
@@ -180,7 +190,7 @@ async function homeView() {
         <div class="hero-art" aria-hidden="true">
           <div class="hero-block"></div>
           <figure class="hero-photo"><img src="/img/hero-braids.jpg" alt="" width="1200" height="1600" fetchpriority="high"></figure>
-          <figure class="hero-inset"><img src="/img/hero-lashes.jpg" alt="" loading="lazy"></figure>
+          <figure class="hero-inset"><img src="/img/hero-adonko.jpg" alt="" loading="lazy"></figure>
           <div class="slot-card">
             <div class="ph-prov">${lead ? avatar(lead) : '<div class="avatar">NB</div>'}<div><b>${esc(lead ? lead.name : 'Your local studio')}</b><div class="muted small">${lead && lead.rating ? `★ ${lead.rating.toFixed(1)} · ` : ''}${esc(lead ? lead.area : 'Nearby')}</div></div></div>
             <div class="ph-days">${week.map((d, i) => `<span class="${i === 1 ? 'on' : ''}"><small>${esc(d.dow.slice(0, 3))}</small><b>${d.dom}</b></span>`).join('')}</div>
@@ -212,9 +222,11 @@ async function homeView() {
       </div>
     </section>
 
-    <section class="block wrap">
-      <div class="section-head"><div><h2>Top-rated near you</h2><p class="muted">Highly reviewed by customers who booked through ${esc(CONFIG.brand)}.</p></div><a href="#/search" class="btn btn-outline btn-sm">See all providers</a></div>
-      <div class="grid top-grid">${providers.map(providerCard).join('')}</div>
+    <section class="top-band">
+      <div class="wrap">
+        <div class="section-head"><div><h2>Top-rated near you</h2><p>Highly reviewed by customers who booked through ${esc(CONFIG.brand)}.</p></div><a href="#/search" class="btn btn-outline btn-sm">See all providers</a></div>
+        <div class="grid top-grid">${providers.map(providerCard).join('')}</div>
+      </div>
     </section>
 
     <section class="block wrap split">
@@ -230,22 +242,22 @@ async function homeView() {
         </ol>
       </div>
       <div class="process-art" aria-hidden="true">
-        <img src="/img/process-nails.jpg" alt="" loading="lazy">
+        <img src="/img/process-makeup.jpg" alt="" loading="lazy">
         <div class="ticket">
           <div class="ticket-top"><span class="confirm-dot">${icon('check', 22)}</span><div><b>Booking confirmed</b><div class="muted small">Ref <span class="ref">NB-7K2Q</span></div></div></div>
-          <div class="summary-line"><span>Service</span><b>Gel manicure</b></div>
+          <div class="summary-line"><span>Service</span><b>Soft glam makeup</b></div>
           <div class="summary-line"><span>When</span><span>${fmtDate(week[2].iso)} · ${fmtTime('11:30')}</span></div>
           <div class="summary-line"><span>Where</span><span>Home visit</span></div>
           <div class="summary-line"><span>Payment</span><span class="badge deposit_paid">deposit paid</span></div>
         </div>
-        <div class="ticket ticket-back"><b>How was your gel manicure?</b><div class="stars" style="--r:80%;font-size:1.4rem;margin:8px 0;display:block">★★★★★</div><span class="muted small">Your review helps neighbours choose.</span></div>
+        <div class="ticket ticket-back"><b>How was your soft glam?</b><div class="stars" style="--r:80%;font-size:1.4rem;margin:8px 0;display:block">★★★★★</div><span class="muted small">Your review helps neighbours choose.</span></div>
       </div>
     </section>
 
     <section class="wrap">
       <div class="band">
-        <img src="/img/banner-barbershop.jpg" alt="" loading="lazy">
-        <h2>Your neighbourhood, open for booking.</h2>
+        <img src="/img/band-oxford-street.jpg" alt="" loading="lazy">
+        <div><span class="band-areas">${CONFIG.areas.slice(0, 8).map(esc).join(' · ')}</span><h2>Your neighbourhood, open for booking.</h2></div>
         <div class="band-stats">
           <div><b>${totalProviders}</b><span>local providers</span></div>
           <div><b>${CONFIG.categories.length}</b><span>categories</span></div>
@@ -256,13 +268,13 @@ async function homeView() {
 
     <section class="block wrap split split-rev">
       <div class="biz-art" aria-hidden="true">
-        <img src="/img/biz-stylist.jpg" alt="" loading="lazy">
+        <img src="/img/biz-makola-trader.jpg" alt="" loading="lazy">
         <div class="mock-page">
           <div class="mock-url">${esc(location.host)}/p/your-business</div>
-          <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px"><div class="avatar" style="--c:#7c3aed">YB</div><div><b>Your Business</b><div class="muted small">★ 5.0 · Your area</div></div></div>
-          <div class="mock-row"><span>Signature service</span><b>${money(45)}</b></div>
-          <div class="mock-row"><span>Premium service</span><b>${money(80)}</b></div>
-          <div class="mock-row"><span>Home visit</span><b>${money(60)}</b></div>
+          <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px"><div class="avatar" style="--c:#0b6e4f">YB</div><div><b>Your Business</b><div class="muted small">★ 5.0 · Your area</div></div></div>
+          <div class="mock-row"><span>Signature service</span><b>${money(150)}</b></div>
+          <div class="mock-row"><span>Premium service</span><b>${money(300)}</b></div>
+          <div class="mock-row"><span>Home visit</span><b>${money(200)}</b></div>
           <div class="btn btn-block" style="margin-top:10px">Book now</div>
         </div>
       </div>
@@ -334,7 +346,7 @@ async function searchView(_, params) {
           <input type="hidden" name="category" value="${esc(params.get('category') || '')}">
           <label>Keyword<input name="q" value="${esc(params.get('q') || '')}" placeholder="e.g. silk press"></label>
           <label>Area<select name="area"><option value="">Any area</option>${CONFIG.areas.map((a) => `<option ${sel('area', a)}>${esc(a)}</option>`).join('')}</select></label>
-          <label>Starting price<select name="maxPrice"><option value="">Any price</option>${[25, 50, 100, 200].map((n) => `<option value="${n}" ${sel('maxPrice', String(n))}>Up to ${money(n)}</option>`).join('')}</select></label>
+          <label>Starting price<select name="maxPrice"><option value="">Any price</option>${[50, 100, 250, 500].map((n) => `<option value="${n}" ${sel('maxPrice', String(n))}>Up to ${money(n)}</option>`).join('')}</select></label>
           <label class="check"><input type="checkbox" name="homeVisit" value="1" ${params.get('homeVisit') === '1' ? 'checked' : ''}> Comes to me (home visits)</label>
           <label>Sort by<select name="sort">
             <option value="rating" ${sel('sort', 'rating')}>Top rated</option>
@@ -376,6 +388,7 @@ async function providerView([slug]) {
     html: `
     <div class="wrap">
       <section class="p-hero">
+        <div class="p-cover" style="--c:${esc(p.color)}">${icon(p.category, 56)}<img src="${esc(photoFor(p))}" alt="" onerror="this.remove()"></div>
         <div class="p-head">
           ${avatar(p, 'xl')}
           <div>
@@ -770,7 +783,7 @@ function joinView(_, params) {
           <div id="joinError"></div>
           <section class="card form-section">
             <h2>Your business</h2><p class="muted">This is what customers will see.</p>
-            <label>Business name<input name="name" required placeholder="e.g. Amara's Braid Studio" maxlength="80" value="${esc(params.get('name') || '')}"></label>
+            <label>Business name<input name="name" required placeholder="e.g. Akosua's Braid Studio" maxlength="80" value="${esc(params.get('name') || '')}"></label>
             <label>Category<select name="category" id="catSelect" required>
               <option value="">Choose the one that fits best</option>
               ${CONFIG.categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
@@ -782,8 +795,8 @@ function joinView(_, params) {
           <section class="card form-section">
             <h2>Location & contact</h2><p class="muted">Customers search by area.</p>
             <div class="row">
-              <label>Area / neighbourhood<input name="area" required list="areaList" placeholder="e.g. Eastside"><datalist id="areaList">${CONFIG.areas.map((a) => `<option value="${esc(a)}">`).join('')}</datalist></label>
-              <label>Phone / WhatsApp<input name="phone" type="tel" required placeholder="+1 555 000 0000"></label>
+              <label>Area / neighbourhood<input name="area" required list="areaList" placeholder="e.g. East Legon"><datalist id="areaList">${CONFIG.areas.map((a) => `<option value="${esc(a)}">`).join('')}</datalist></label>
+              <label>Phone / WhatsApp<input name="phone" type="tel" required placeholder="+233 24 000 0000"></label>
             </div>
             <label>Address <span class="hint">(leave blank if you only do home visits)</span><input name="address" placeholder="Street, unit, landmark"></label>
             <label class="check"><input type="checkbox" name="homeVisit"> I offer home visits / mobile service</label>
@@ -1031,6 +1044,26 @@ async function dashboardView([id], params) {
   };
 }
 
+async function creditsView() {
+  const res = await fetch('/img/credits.json');
+  if (!res.ok) throw new Error('Could not load photo credits.');
+  const credits = await res.json();
+  const link = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>`;
+  return {
+    html: `
+    <div class="wrap narrow">
+      <div class="page-head"><h1>Photo credits</h1><p class="muted">Photos are used under the licences linked below and have been cropped and resized. Thank you to the photographers who share their work openly.</p></div>
+      <div class="card pad credits">
+        ${credits.map((c) => `
+          <div class="credit">
+            <img src="${esc(c.file)}" alt="" loading="lazy">
+            <div><b>${esc(c.title)}</b><div class="muted small">${esc(c.creator)} · ${link(c.licenseUrl, c.license)} · ${link(c.source, 'Source')}</div></div>
+          </div>`).join('')}
+      </div>
+    </div>`,
+  };
+}
+
 function notFoundView() {
   return { html: `<div class="wrap confirm"><h1>Page not found</h1><p class="muted">That page doesn't exist.</p><a href="#/" class="btn">Go home</a></div>` };
 }
@@ -1045,6 +1078,7 @@ const routes = [
   [/^\/bookings$/, bookingsView],
   [/^\/join$/, joinView],
   [/^\/dashboard(?:\/([\w-]+))?$/, dashboardView],
+  [/^\/credits$/, creditsView],
 ];
 
 let renderId = 0;

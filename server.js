@@ -10,7 +10,7 @@ const { CATEGORIES, COLORS, seed, slugify } = require('./seed');
 
 const PORT = Number(process.env.PORT) || 3000;
 const BRAND = process.env.BRAND || 'Nearbook';
-const CURRENCY = process.env.CURRENCY || 'USD';
+const CURRENCY = process.env.CURRENCY || 'GHS';
 const DEPOSIT_PERCENT = Math.min(Math.max(Number(process.env.DEPOSIT_PERCENT) || 30, 1), 100);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 // Serverless hosts (Vercel) only allow writes to the temp dir, and data there doesn't survive cold starts.
