@@ -8,7 +8,7 @@ const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
 const WEEK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
-let CONFIG = { brand: 'Nearbook', currency: 'GHS', depositPercent: 30, categories: [], areas: [] };
+let CONFIG = { brand: 'Nearbook', currency: 'GHS', depositPercent: 30, whatsapp: false, countryCode: '233', categories: [], regions: [], areas: [] };
 
 // ---------- utilities ----------
 
@@ -52,6 +52,54 @@ const avatar = (p, size = '') => `<div class="avatar ${size}" style="--c:${esc(p
 const photoFor = (p) => p.photo || `/img/cat-${p.category}.jpg`;
 const stars = (rating) => `<span class="stars" style="--r:${((rating || 0) / 5) * 100}%" aria-label="${rating || 0} out of 5">★★★★★</span>`;
 const shareUrl = (slug) => `${location.origin}/p/${slug}`;
+// wa.me click-to-chat link for a local or international number (same rules as whatsapp.js on the server).
+function waLink(phone) {
+  const raw = String(phone || '').trim();
+  let d = raw.replace(/\D/g, '');
+  if (!raw.startsWith('+')) {
+    if (d.startsWith('00')) d = d.slice(2);
+    else if (d.startsWith('0')) d = CONFIG.countryCode + d.slice(1);
+    else if (d.length === 9) d = CONFIG.countryCode + d;
+  }
+  return d.length >= 11 && d.length <= 15 ? `https://wa.me/${d}` : '';
+}
+
+// <option>s for an area <select>, grouped by region. In search, a region's own option covers all of its areas.
+const areaOptions = (selected, { regionWide = true } = {}) => CONFIG.regions.map((r) => `
+  <optgroup label="${esc(r.name)}">
+    ${regionWide ? `<option value="${esc(r.name)}" ${selected === r.name ? 'selected' : ''}>All of ${esc(r.name)}</option>` : ''}
+    ${r.areas.map((a) => `<option ${selected === a ? 'selected' : ''}>${esc(a)}</option>`).join('')}
+  </optgroup>`).join('');
+
+// ---------- saved (favourite) providers ----------
+// Kept in this browser. The server only gets an anonymous per-device count for the business dashboard.
+
+const favs = {
+  list: () => store.get('nb_favs', []),
+  has: (id) => favs.list().includes(id),
+  toggle(id) {
+    const list = favs.list();
+    const saved = !list.includes(id);
+    store.set('nb_favs', saved ? [...list, id] : list.filter((x) => x !== id));
+    return saved;
+  },
+};
+
+function deviceId() {
+  let id = store.get('nb_device', '');
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+    store.set('nb_device', id);
+  }
+  return id;
+}
+
+// The label spans let the provider page show "Save"/"Saved" text; cards show just the heart.
+const favButton = (p, cls = '') => {
+  const on = favs.has(p.id);
+  return `<button type="button" class="fav-btn ${cls} ${on ? 'on' : ''}" data-fav="${esc(p.id)}" aria-pressed="${on}" aria-label="Save ${esc(p.name)} to favourites">
+    ${icon('heart', 20)}<span class="when-off">Save</span><span class="when-on">Saved</span></button>`;
+};
 
 function toast(msg) {
   const t = $('#toast');
@@ -86,11 +134,15 @@ const ICONS = {
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/>',
+  heart: '<path d="M12 20.5s-7.6-4.6-9.3-9.5C1.5 7.5 3.9 4 7.4 4c2 0 3.6 1.1 4.6 2.7C13 5.1 14.6 4 16.6 4c3.5 0 5.9 3.5 4.7 7-1.7 4.9-9.3 9.5-9.3 9.5z"/>',
+  chat: '<path d="M20.5 11.6a8.5 8.5 0 01-12.6 7.5L3.5 20.5l1.4-4.3a8.5 8.5 0 1115.6-4.6z"/><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1.2-1.4-1.8-1-.9.8a4 4 0 01-2.4-2.4l.8-.9-1-1.8z"/>',
 };
 const icon = (name, size = 20) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 
+// The heart sits outside the link (a button can't go inside an <a>) and is positioned over the card.
 function providerCard(p) {
-  return `<a class="card pcard" href="#/p/${esc(p.slug)}">
+  return `<div class="pcard-wrap">
+  <a class="card pcard" href="#/p/${esc(p.slug)}">
     <div class="pcard-media" style="--c:${esc(p.color)}">
       ${icon(p.category, 44)}
       <img src="${esc(photoFor(p))}" alt="" loading="lazy" onerror="this.remove()">
@@ -110,7 +162,9 @@ function providerCard(p) {
         <span class="from">${p.priceFrom === 0 ? '<b>Free</b> consult' : `From <b>${money(p.priceFrom)}</b>`}</span>
       </div>
     </div>
-  </a>`;
+  </a>
+  ${favButton(p)}
+  </div>`;
 }
 
 function nextDays(n) {
@@ -165,7 +219,7 @@ async function homeView() {
     ['Can I cancel or move a booking?', 'Yes. Cancelling is free until your appointment starts, and your deposit is refunded. Open My bookings, cancel, then pick a new time.'],
     ['Can someone come to my home?', 'Many providers offer home visits. Tick "Comes to me" in search and choose Home visit at checkout. Then add your address.'],
     ['Are the reviews real?', `Only customers who booked through ${esc(CONFIG.brand)} can leave a review, and only after their appointment. Look for the "Booked on ${esc(CONFIG.brand)}" label.`],
-    ['Do I need an account?', 'No. Your confirmation and bookings are linked to the email you book with. Enter it in My bookings to see your appointments.'],
+    ['Do I need an account?', 'No. Your confirmation and bookings are linked to the email you book with. Enter it in My bookings to see your appointments. Tap the ♥ on any provider to save them for later.'],
     ['I run a business. What does it cost to list?', 'Creating your booking page is free. Add your services, prices and hours, and you\'ll get a link you can share right away.'],
   ];
   const lead = providers[0];
@@ -177,12 +231,12 @@ async function homeView() {
     <section class="hero">
       <div class="wrap hero-grid">
         <div>
-          <span class="chip">${icon('pin', 14)} Akwaaba! Local pros across Accra</span>
+          <span class="chip">${icon('pin', 14)} Akwaaba! Local pros across Accra & Kumasi</span>
           <h1>Book <em>local</em> pros without the back&#8209;and&#8209;forth.</h1>
           <p class="lead">Braiders and barbers, laundry, plumbers, okada errands, DJs, tutors and more. See real prices and open times, pick a slot and secure it with a small deposit. Many of these providers don't have a website of their own.</p>
           <form class="searchbar" id="heroSearch">
             <div class="field">${icon('search')}<input name="q" placeholder="What do you need? e.g. braids, laundry, DJ" aria-label="Service"></div>
-            <div class="field">${icon('pin')}<select name="area" aria-label="Area"><option value="">Any area</option>${CONFIG.areas.map((a) => `<option>${esc(a)}</option>`).join('')}</select></div>
+            <div class="field">${icon('pin')}<select name="area" aria-label="Area"><option value="">Any area</option>${areaOptions()}</select></div>
             <button class="btn">Search</button>
           </form>
           <div class="popular"><span class="muted small">Popular:</span>${popular.map((t) => `<a href="#/search?q=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>
@@ -334,7 +388,7 @@ async function searchView(_, params) {
     <div class="wrap">
       <div class="page-head">
         <h1>${active ? esc(active.name) : params.get('q') ? `Results for “${esc(params.get('q'))}”` : 'Explore local services'}</h1>
-        <p class="muted">${active ? esc(active.description) : 'Find and book trusted providers in your area.'}</p>
+        <p class="muted">${active ? esc(active.description) : 'Find and book trusted providers in your area.'}${params.get('area') ? ` Showing <b>${esc(params.get('area'))}</b>.` : ''}</p>
       </div>
       <div class="cat-pills">
         <a href="${withParam('category', '')}" class="${!active ? 'active' : ''}">All</a>
@@ -345,7 +399,7 @@ async function searchView(_, params) {
           <h3>Filters</h3>
           <input type="hidden" name="category" value="${esc(params.get('category') || '')}">
           <label>Keyword<input name="q" value="${esc(params.get('q') || '')}" placeholder="e.g. silk press"></label>
-          <label>Area<select name="area"><option value="">Any area</option>${CONFIG.areas.map((a) => `<option ${sel('area', a)}>${esc(a)}</option>`).join('')}</select></label>
+          <label>Area<select name="area"><option value="">Any area</option>${areaOptions(params.get('area'))}</select></label>
           <label>Starting price<select name="maxPrice"><option value="">Any price</option>${[50, 100, 250, 500].map((n) => `<option value="${n}" ${sel('maxPrice', String(n))}>Up to ${money(n)}</option>`).join('')}</select></label>
           <label class="check"><input type="checkbox" name="homeVisit" value="1" ${params.get('homeVisit') === '1' ? 'checked' : ''}> Comes to me (home visits)</label>
           <label>Sort by<select name="sort">
@@ -396,7 +450,7 @@ async function providerView([slug]) {
             <h1>${esc(p.name)}</h1>
             <div class="meta">${p.rating ? `${stars(p.rating)} <b>${p.rating.toFixed(1)}</b> <span class="muted">(${p.reviewCount} reviews)</span>` : '<span class="muted">No reviews yet</span>'} <span class="sep">•</span> ${icon('pin', 16)} ${esc(p.area)}</div>
           </div>
-          <div class="actions"><button class="btn btn-ghost btn-sm" id="shareBtn">${icon('share', 16)} Share</button></div>
+          <div class="actions">${favButton(p, 'fav-inline btn btn-ghost btn-sm')}<button class="btn btn-ghost btn-sm" id="shareBtn">${icon('share', 16)} Share</button></div>
         </div>
       </section>
       <div class="p-layout">
@@ -493,8 +547,9 @@ async function bookView([slug, serviceId]) {
               <label id="addressField" ${p.address ? 'hidden' : ''}>Your address<input name="address" autocomplete="street-address" value="${esc(saved.address || '')}" placeholder="Street, building, apartment"></label>` : ''}
             <div class="row">
               <label>Full name<input name="name" required autocomplete="name" value="${esc(saved.name || '')}"></label>
-              <label>Phone<input name="phone" type="tel" autocomplete="tel" value="${esc(saved.phone || '')}"></label>
+              <label>Phone / WhatsApp<input name="phone" type="tel" autocomplete="tel" value="${esc(saved.phone || '')}" placeholder="024 123 4567"></label>
             </div>
+            ${CONFIG.whatsapp ? `<label class="check wa-opt"><input type="checkbox" name="whatsapp" ${saved.whatsapp ? 'checked' : ''}> ${icon('chat', 18)} Send my confirmation and a reminder on WhatsApp</label>` : ''}
             <label>Email <span class="hint">· your confirmation goes here</span><input name="email" type="email" required autocomplete="email" value="${esc(saved.email || store.get('nb_email', ''))}"></label>
             <label>Notes for the provider <span class="hint">(optional)</span><textarea name="notes" placeholder="Hair length, allergies, access instructions…"></textarea></label>
 
@@ -588,6 +643,8 @@ async function bookView([slug, serviceId]) {
         if (!state.date || !state.time) return showError('Please choose a date and time.');
         if (!fd.name || !fd.name.trim()) return showError('Please enter your name.');
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fd.email || '')) return showError('Please enter a valid email address.');
+        const whatsapp = fd.whatsapp === 'on';
+        if (whatsapp && !(fd.phone || '').trim()) return showError('Please enter your WhatsApp number, or untick WhatsApp updates.');
         const location = fd.location || 'venue';
         if (location === 'home' && !(fd.address || '').trim()) return showError('Please enter the address for your home visit.');
 
@@ -600,10 +657,10 @@ async function bookView([slug, serviceId]) {
             body: {
               providerId: p.id, serviceId: svc.id, date: state.date, time: state.time, location,
               address: fd.address, notes: fd.notes,
-              customer: { name: fd.name, email: fd.email, phone: fd.phone },
+              customer: { name: fd.name, email: fd.email, phone: fd.phone, whatsapp },
             },
           });
-          store.set('nb_customer', { name: fd.name, email: fd.email, phone: fd.phone, address: fd.address || saved.address || '' });
+          store.set('nb_customer', { name: fd.name, email: fd.email, phone: fd.phone, whatsapp, address: fd.address || saved.address || '' });
           store.set('nb_email', fd.email.trim().toLowerCase());
           showConfirmation(booking);
         } catch (err) {
@@ -635,6 +692,7 @@ function showConfirmation(b) {
         <div class="summary-line"><span>Where</span><span style="text-align:right">${esc(where)}</span></div>
         <div class="summary-line"><span>Payment</span><span>${payBadge(b.payment)}</span></div>
         <p class="muted small" style="margin:10px 0 0">${esc(payLabel)}</p>
+        ${b.customer.whatsapp ? `<p class="muted small" style="margin:6px 0 0">${icon('chat', 14)} We'll send your confirmation and a reminder the day before on WhatsApp.</p>` : ''}
       </div>
       <div class="btn-row">
         <button class="btn btn-ghost" id="icsBtn">${icon('clock', 18)} Add to calendar</button>
@@ -795,9 +853,10 @@ function joinView(_, params) {
           <section class="card form-section">
             <h2>Location & contact</h2><p class="muted">Customers search by area.</p>
             <div class="row">
-              <label>Area / neighbourhood<input name="area" required list="areaList" placeholder="e.g. East Legon"><datalist id="areaList">${CONFIG.areas.map((a) => `<option value="${esc(a)}">`).join('')}</datalist></label>
-              <label>Phone / WhatsApp<input name="phone" type="tel" required placeholder="+233 24 000 0000"></label>
+              <label>Area / neighbourhood<select name="area" required><option value="">Choose your area</option>${areaOptions('', { regionWide: false })}</select><span class="hint">Not listed? Pick the closest one.</span></label>
+              <label>Phone / WhatsApp<input name="phone" type="tel" required placeholder="024 123 4567"></label>
             </div>
+            ${CONFIG.whatsapp ? `<label class="check wa-opt"><input type="checkbox" name="whatsapp" checked> ${icon('chat', 18)} Send new bookings and my dashboard link to this WhatsApp number</label>` : ''}
             <label>Address <span class="hint">(leave blank if you only do home visits)</span><input name="address" placeholder="Street, unit, landmark"></label>
             <label class="check"><input type="checkbox" name="homeVisit"> I offer home visits / mobile service</label>
             <label style="max-width:260px">Customers you can serve at once<input name="capacity" type="number" min="1" max="20" value="1"><span class="hint">Number of chairs, stations or staff.</span></label>
@@ -870,7 +929,7 @@ function joinView(_, params) {
             method: 'POST',
             body: {
               name: fd.get('name'), category: fd.get('category'), tagline: fd.get('tagline'), about: fd.get('about'),
-              area: fd.get('area'), phone: fd.get('phone'), address: fd.get('address'), homeVisit: fd.get('homeVisit') === 'on',
+              area: fd.get('area'), phone: fd.get('phone'), whatsapp: fd.get('whatsapp') === 'on', address: fd.get('address'), homeVisit: fd.get('homeVisit') === 'on',
               capacity: Number(fd.get('capacity')), services, hours,
             },
           });
@@ -901,7 +960,7 @@ function showJoinSuccess(p, key) {
         <p class="muted small">Put it in your Instagram bio, WhatsApp status or Google profile.</p>
         <div class="share-box"><code>${esc(shareUrl(p.slug))}</code><button class="btn btn-sm" data-copy="${esc(shareUrl(p.slug))}">Copy</button></div>
         <h3 style="margin-top:22px">Your private dashboard link</h3>
-        <p class="muted small">This link lets you manage your bookings. Keep it safe and don't share it. It's also saved in this browser.</p>
+        <p class="muted small">This link lets you manage your bookings. Keep it safe and don't share it. It's also saved in this browser${p.whatsapp ? ', and we\'ve sent it to your WhatsApp' : ''}.</p>
         <div class="share-box"><code>${esc(dashUrl)}</code><button class="btn btn-sm btn-ghost" data-copy="${esc(dashUrl)}">Copy</button></div>
       </div>
       <div class="btn-row">
@@ -922,11 +981,46 @@ async function dashboardView([id], params) {
     return {
       html: `
       <div class="wrap narrow">
-        <div class="page-head"><h1>Business dashboard</h1><p class="muted">Manage your appointments and booking page.</p></div>
+        <div class="page-head"><h1>Business dashboard</h1><p class="muted">See your bookings, earnings and customers, and how many people saved your business.</p></div>
         ${ids.length ? `<div class="card pad" style="margin-bottom:18px"><h3>Your businesses on this device</h3>${ids.map((i) => `<p><a href="#/dashboard/${esc(i)}">${esc(keys[i].name)}</a></p>`).join('')}</div>` : ''}
-        <div class="card pad"><h3>Not listed yet?</h3><p class="muted">Create a free booking page in a few minutes.</p><a class="btn" href="#/join">List your business</a>
-        <p class="muted small" style="margin:16px 0 0">Already listed on another device? Open the private dashboard link you were given when you signed up.</p></div>
+        <form class="card pad" id="linkForm" style="margin-bottom:18px">
+          <h3>Sign in on this device</h3>
+          <p class="muted small">Paste the private dashboard link you got when you listed your business.</p>
+          <div id="linkError"></div>
+          <label>Dashboard link<input name="link" required autocomplete="off" placeholder="${esc(location.host)}/#/dashboard/…?key=…"></label>
+          <button class="btn">Open my dashboard</button>
+        </form>
+        ${CONFIG.whatsapp ? `
+        <form class="card pad" id="recoverForm" style="margin-bottom:18px">
+          <h3>Lost your link?</h3>
+          <p class="muted small">We'll send it on WhatsApp to the phone number on your listing.</p>
+          <div id="recoverMsg"></div>
+          <label>Phone / WhatsApp<input name="phone" type="tel" required placeholder="024 123 4567"></label>
+          <button class="btn btn-ghost">${icon('chat', 18)} Send my link</button>
+        </form>` : ''}
+        <div class="card pad"><h3>Not listed yet?</h3><p class="muted">Create a free booking page in a few minutes.</p><a class="btn" href="#/join">List your business</a></div>
       </div>`,
+      mount() {
+        $('#linkForm').addEventListener('submit', (e) => {
+          e.preventDefault();
+          const m = new FormData(e.target).get('link').match(/dashboard\/([\w-]+)\?key=([^&\s]+)/);
+          if (!m) { $('#linkError').innerHTML = errorBox('That isn\'t a dashboard link. It ends with "?key=" and your private key.'); return; }
+          location.hash = `#/dashboard/${m[1]}?key=${m[2]}`;
+        });
+        const recover = $('#recoverForm');
+        if (recover) {
+          recover.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = $('button', recover);
+            btn.disabled = true;
+            try {
+              await api('/manage/recover', { method: 'POST', body: { phone: new FormData(recover).get('phone') } });
+              $('#recoverMsg').innerHTML = '<div class="form-ok" role="status">If that number is on a listing, your link is on its way to WhatsApp.</div>';
+            } catch (err) { $('#recoverMsg').innerHTML = errorBox(err.message); }
+            btn.disabled = false;
+          });
+        }
+      },
     };
   }
 
@@ -953,20 +1047,103 @@ async function dashboardView([id], params) {
   let bookings = data.bookings;
   let tab = 'upcoming';
 
+  // Money actually received: the full price once paid, otherwise the deposit (also kept after a no-show).
+  const received = (b) => (b.payment.status === 'paid' ? b.price : b.payment.status === 'deposit_paid' ? b.payment.deposit : 0);
+  const live = () => bookings.filter((b) => b.status !== 'cancelled');
+
+  // One row per customer (matched by email), newest first.
+  const customers = () => {
+    const byEmail = new Map();
+    for (const b of live()) {
+      const c = byEmail.get(b.customer.email) || { visits: 0, spent: 0, last: '' };
+      c.visits++;
+      c.spent += received(b);
+      if (b.date >= c.last) Object.assign(c, { last: b.date, name: b.customer.name, phone: b.customer.phone, email: b.customer.email });
+      byEmail.set(b.customer.email, c);
+    }
+    return [...byEmail.values()].sort((a, b) => b.last.localeCompare(a.last));
+  };
+
   const statsHtml = () => {
     const upcoming = bookings.filter((b) => b.status === 'confirmed' && !b.started);
     const month = isoDate(new Date()).slice(0, 7);
-    const received = (b) => (b.payment.status === 'paid' ? b.price : b.payment.status === 'deposit_paid' ? b.payment.deposit : 0);
-    const earned = bookings.filter((b) => b.status !== 'cancelled' && b.date.startsWith(month)).reduce((s, b) => s + received(b), 0);
+    const earned = live().filter((b) => b.date.startsWith(month)).reduce((s, b) => s + received(b), 0);
     const due = upcoming.filter((b) => b.payment.status === 'deposit_paid').reduce((s, b) => s + b.payment.balance, 0);
+    const people = customers();
+    const regulars = people.filter((c) => c.visits > 1).length;
     return `
       <div class="card stat"><div class="label">Upcoming appointments</div><div class="value">${upcoming.length}</div></div>
       <div class="card stat"><div class="label">Received this month</div><div class="value">${amount(earned)}</div><div class="muted small">Deposits and balances</div></div>
       <div class="card stat"><div class="label">To collect after service</div><div class="value">${due ? money(due) : '—'}</div></div>
-      <div class="card stat"><div class="label">Rating</div><div class="value">${p.rating ? `${p.rating.toFixed(1)} ★` : '—'}</div><div class="muted small">${p.reviewCount} reviews</div></div>`;
+      <div class="card stat"><div class="label">Rating</div><div class="value">${p.rating ? `${p.rating.toFixed(1)} ★` : '—'}</div><div class="muted small">${p.reviewCount} reviews</div></div>
+      <div class="card stat"><div class="label">Customers</div><div class="value">${people.length}</div><div class="muted small">${regulars} came back more than once</div></div>
+      <div class="card stat"><div class="label">Saved by</div><div class="value">${data.favorites} ${icon('heart', 20)}</div><div class="muted small">${data.favorites === 1 ? 'person has' : 'people have'} you in their favourites</div></div>`;
+  };
+
+  // Column chart of bookings by appointment month. Only the latest month is labelled on the bar;
+  // hovering or focusing any month shows its count.
+  const chartHtml = () => {
+    const now = new Date();
+    const months = Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+      const key = isoDate(d).slice(0, 7);
+      return { label: d.toLocaleDateString(undefined, { month: 'short' }), long: d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }), count: live().filter((b) => b.date.startsWith(key)).length };
+    });
+    const max = Math.max(1, ...months.map((m) => m.count));
+    const step = 10 ** Math.floor(Math.log10(max / 2 || 1));
+    const half = Math.max(1, [1, 2, 5, 10].map((n) => n * step).find((v) => v >= max / 2));
+    const top = half * 2;
+    const plural = (n) => `${n} booking${n === 1 ? '' : 's'}`;
+    return `
+      <div class="chart">
+        <div class="chart-grid" aria-hidden="true">${[top, half, 0].map((v) => `<span style="--y:${(v / top) * 100}%"><i>${v}</i></span>`).join('')}</div>
+        <ul class="chart-cols">
+          ${months.map((m, i) => `
+            <li tabindex="0" aria-label="${esc(m.long)}: ${plural(m.count)}">
+              <div class="col-track"><div class="col" style="--h:${(m.count / top) * 100}%">${i === months.length - 1 ? `<b class="col-val">${m.count}</b>` : ''}</div></div>
+              <span class="col-label">${esc(m.label)}</span>
+              <span class="col-tip" aria-hidden="true">${esc(m.long)}<b>${plural(m.count)}</b></span>
+            </li>`).join('')}
+        </ul>
+      </div>`;
+  };
+
+  const topServicesHtml = () => {
+    const by = new Map();
+    for (const b of live()) {
+      const s = by.get(b.serviceName) || { name: b.serviceName, count: 0, earned: 0 };
+      s.count++;
+      s.earned += received(b);
+      by.set(b.serviceName, s);
+    }
+    const list = [...by.values()].sort((a, b) => b.count - a.count || b.earned - a.earned).slice(0, 5);
+    if (!list.length) return '<p class="muted">Your most-booked services will show here once customers start booking.</p>';
+    return `<table class="list"><thead><tr><th>Service</th><th class="num">Bookings</th><th class="num">Received</th></tr></thead>
+      <tbody>${list.map((s) => `<tr><td>${esc(s.name)}</td><td class="num">${s.count}</td><td class="num">${amount(s.earned)}</td></tr>`).join('')}</tbody></table>`;
+  };
+
+  // Phone numbers become "chat on WhatsApp" links (wa.me click-to-chat, no API needed).
+  const contactHtml = (c) => {
+    const wa = waLink(c.phone);
+    return wa ? `<a href="${esc(wa)}" target="_blank" rel="noopener" class="wa-link">${icon('chat', 14)} ${esc(c.phone)}</a>` : esc(c.phone || c.email);
+  };
+
+  const customersHtml = () => {
+    const list = customers();
+    if (!list.length) return '<div class="empty"><p class="muted">Customers who book with you will appear here, with their contact details and how often they come back.</p></div>';
+    return `<div class="table-wrap"><table class="list">
+      <thead><tr><th>Customer</th><th class="num">Bookings</th><th>Latest</th><th class="num">Paid you</th></tr></thead>
+      <tbody>${list.map((c) => `
+        <tr>
+          <td><b>${esc(c.name)}</b>${c.visits > 1 ? ' <span class="tag">Regular</span>' : ''}<br><span class="small">${contactHtml(c)}</span></td>
+          <td class="num">${c.visits}</td>
+          <td>${fmtDate(c.last, { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+          <td class="num">${amount(c.spent)}</td>
+        </tr>`).join('')}</tbody></table></div>`;
   };
 
   const rowsHtml = () => {
+    if (tab === 'customers') return customersHtml();
     const needsAction = (b) => b.status === 'confirmed';
     let list;
     if (tab === 'upcoming') list = bookings.filter((b) => needsAction(b) && !b.started);
@@ -978,7 +1155,7 @@ async function dashboardView([id], params) {
       <tbody>${list.map((b) => `
         <tr data-id="${esc(b.id)}">
           <td><b>${fmtDate(b.date)}</b><br><span class="muted">${fmtTime(b.time)} · ${fmtDuration(b.duration)}</span></td>
-          <td><b>${esc(b.customer.name)}</b><br><span class="muted small">${esc(b.customer.phone || b.customer.email)}</span>${b.location === 'home' ? `<br><span class="tag">${icon('home', 12)} ${esc(b.address)}</span>` : ''}${b.notes ? `<br><span class="muted small">“${esc(b.notes)}”</span>` : ''}</td>
+          <td><b>${esc(b.customer.name)}</b><br><span class="muted small">${contactHtml(b.customer)}</span>${b.location === 'home' ? `<br><span class="tag">${icon('home', 12)} ${esc(b.address)}</span>` : ''}${b.notes ? `<br><span class="muted small">“${esc(b.notes)}”</span>` : ''}</td>
           <td>${esc(b.serviceName)}<br><span class="muted small">Ref ${esc(b.ref)}</span></td>
           <td>${money(b.price)}<br>${payBadge(b.payment)}${b.status === 'confirmed' && b.payment.status === 'deposit_paid' && b.payment.balance ? `<br><span class="muted small">${money(b.payment.balance)} after service</span>` : ''}</td>
           <td><span class="badge ${b.status}">${b.status.replace('_', '-')}</span></td>
@@ -1004,11 +1181,16 @@ async function dashboardView([id], params) {
         <p class="muted small" style="margin:6px 0 0">Share it anywhere. Customers can see your services, pick a time and pay a deposit to book.</p>
       </div>
       <div class="stat-grid" id="stats">${statsHtml()}</div>
+      <div class="insights">
+        <div class="card pad"><h3>Bookings per month</h3><p class="muted small">Last 6 months, by appointment date. Cancellations not counted.</p><div id="chart">${chartHtml()}</div></div>
+        <div class="card pad"><h3>Top services</h3><p class="muted small">Your most-booked services and what they've brought in.</p><div id="topServices">${topServicesHtml()}</div></div>
+      </div>
       <div class="card pad">
         <div class="tabs" id="dashTabs">
           <button data-tab="upcoming" class="active">Upcoming</button>
           <button data-tab="action">Needs update <span id="actionCount">${actionCount() ? `(${actionCount()})` : ''}</span></button>
           <button data-tab="history">History</button>
+          <button data-tab="customers">Customers</button>
         </div>
         <div id="rows">${rowsHtml()}</div>
       </div>
@@ -1018,6 +1200,8 @@ async function dashboardView([id], params) {
       const redraw = () => {
         $('#rows').innerHTML = rowsHtml();
         $('#stats').innerHTML = statsHtml();
+        $('#chart').innerHTML = chartHtml();
+        $('#topServices').innerHTML = topServicesHtml();
         $('#actionCount').textContent = actionCount() ? `(${actionCount()})` : '';
       };
       $('#dashTabs').addEventListener('click', (e) => {
@@ -1041,6 +1225,24 @@ async function dashboardView([id], params) {
         } catch (err) { toast(err.message); }
       });
     },
+  };
+}
+
+async function savedView() {
+  const ids = favs.list();
+  const { providers } = ids.length ? await api('/providers?limit=100&ids=' + ids.map(encodeURIComponent).join(',')) : { providers: [] };
+  providers.sort((a, b) => ids.indexOf(b.id) - ids.indexOf(a.id)); // most recently saved first
+  return {
+    html: `
+    <div class="wrap">
+      <div class="page-head">
+        <h1>Saved providers</h1>
+        <p class="muted">Your favourite places, ready to rebook. Tap the ${icon('heart', 16)} on any provider to add or remove them. Saved on this device.</p>
+      </div>
+      <div id="savedList">${providers.length
+        ? `<div class="grid">${providers.map(providerCard).join('')}</div>`
+        : `<div class="card empty"><span class="pill">${icon('heart', 22)}</span><h3>No favourites yet</h3><p class="muted">Tap the heart on a provider you like and they'll show up here, so you can find them again quickly.</p><a href="#/search" class="btn">Explore services</a></div>`}</div>
+    </div>`,
   };
 }
 
@@ -1076,6 +1278,7 @@ const routes = [
   [/^\/p\/([\w-]+)$/, providerView],
   [/^\/book\/([\w-]+)\/([\w-]+)$/, bookView],
   [/^\/bookings$/, bookingsView],
+  [/^\/saved$/, savedView],
   [/^\/join$/, joinView],
   [/^\/dashboard(?:\/([\w-]+))?$/, dashboardView],
   [/^\/credits$/, creditsView],
@@ -1107,8 +1310,32 @@ async function render() {
 
 function updateNav(path = (location.hash.slice(1) || '/').split('?')[0]) {
   $$('[data-nav]').forEach((a) => a.classList.toggle('active', path.startsWith(a.dataset.nav)));
-  $('#dashLink').hidden = !Object.keys(store.get('nb_keys', {})).length;
+  $('#dashLink').textContent = Object.keys(store.get('nb_keys', {})).length ? 'My business' : 'Business login';
+  const count = favs.list().length;
+  $('#favCount').textContent = count || '';
+  $('#favCount').hidden = !count;
 }
+
+// Hearts anywhere on the page. Every copy of the same provider's heart updates together.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-fav]');
+  if (!btn) return;
+  e.preventDefault();
+  const id = btn.dataset.fav;
+  const saved = favs.toggle(id);
+  $$('[data-fav]').filter((b) => b.dataset.fav === id).forEach((b) => {
+    b.classList.toggle('on', saved);
+    b.setAttribute('aria-pressed', String(saved));
+  });
+  toast(saved ? 'Saved to your favourites' : 'Removed from favourites');
+  updateNav();
+  api(`/providers/${encodeURIComponent(id)}/favorite`, { method: 'POST', body: { device: deviceId(), saved } }).catch(() => { /* the count is best-effort */ });
+  // On the Saved page, un-hearting removes the card.
+  if (!saved && $('#savedList')) {
+    btn.closest('.pcard-wrap').remove();
+    if (!$('#savedList .pcard-wrap')) render();
+  }
+});
 
 function closeMenu() { $('#nav').classList.remove('open'); $('#menuBtn').setAttribute('aria-expanded', 'false'); }
 $('#menuBtn').addEventListener('click', () => {

@@ -61,16 +61,31 @@ const CATEGORIES = [
 // Avatar colours drawn from kente cloth: green, red, gold, indigo, earth.
 const COLORS = ['#0b6e4f', '#c8361d', '#a66a00', '#6d3b8c', '#1f5f8b', '#8a4b1f', '#0f766e', '#b3311a', '#3f6212', '#9d174d'];
 
-// Landmark used in each seeded area's street address.
+// Areas customers can search and businesses can list in, grouped by region.
+// A region's name also works as a search filter covering all of its areas.
+const REGIONS = [
+  {
+    name: 'Greater Accra',
+    areas: ['Osu', 'East Legon', 'Madina', 'North Legon', 'Airport Residential', 'Dzorwulu', 'Circle', 'Ridge', 'Oyarifa', 'Lakeside',
+      'Adenta', 'Spintex', 'Tema', 'Kaneshie', 'Achimota / Dome', 'Dansoman', 'Ashaiman', 'Lapaz', 'Kasoa'],
+  },
+  {
+    name: 'Greater Kumasi',
+    areas: ['Adum', 'Kejetia', 'Bantama', 'Suame', 'Tafo', 'Asokwa', 'Ahodwo', 'KNUST', 'Ayigya', 'Kwadaso', 'Atonsu', 'Ejisu', 'Asokore Mampong'],
+  },
+];
+
+// Landmark used in the street address of seeded providers that have a shop.
 const LANDMARKS = {
   Osu: 'Oxford Street',
-  'East Legon': 'near American House',
-  Labone: 'near Labone Junction',
+  'Airport Residential': 'off Liberation Road',
   Madina: 'near Zongo Junction',
   Spintex: 'near Coca-Cola Roundabout',
   Dansoman: 'near Last Stop',
-  Jamestown: 'High Street',
-  Legon: 'near Okponglo Junction',
+  'North Legon': 'near Agbogba Junction',
+  Adum: 'Prempeh II Street',
+  Ahodwo: 'near Ahodwo Roundabout',
+  Kejetia: 'near Kejetia Market',
 };
 
 const HOURS = {
@@ -89,7 +104,7 @@ const PROVIDERS = [
     [['Knotless braids (mid-back)', 240, 450], ['Box braids', 210, 380], ['Cornrows', 90, 120], ['Kids braids', 120, 150]]],
   ['Crown & Glow Wig Bar', 'hair-beauty', 'Osu', 'Wig installs, revamps and custom units', false, 1, 'late',
     [['Frontal wig install', 90, 250], ['Closure wig install', 75, 180], ['Wig revamp & restyle', 60, 150], ['Custom unit consultation', 30, 0]]],
-  ['Polished Nail Lounge', 'hair-beauty', 'Labone', 'Gel, acrylics and spa pedicures', false, 3, 'late',
+  ['Polished Nail Lounge', 'hair-beauty', 'Airport Residential', 'Gel, acrylics and spa pedicures', false, 3, 'late',
     [['Gel manicure', 45, 150], ['Spa pedicure', 60, 200], ['Acrylic full set', 90, 250], ['Mani + pedi combo', 105, 320]]],
   ['Lash & Brow by Esi', 'hair-beauty', 'Madina', 'Lash extensions & brow lamination — studio or at home', true, 1, 'salon',
     [['Classic lash set', 90, 300], ['Volume lash set', 120, 450], ['Brow lamination', 45, 200], ['Brow shape & tint', 30, 100]]],
@@ -100,65 +115,65 @@ const PROVIDERS = [
 
   ['Sharp Lines Barbershop', 'hair-beauty', 'Osu', 'Walk-in energy, booked-in convenience', false, 3, 'barber',
     [['Haircut', 30, 50], ['Haircut & beard', 45, 70], ['Kids cut', 30, 35], ['Line-up', 15, 25]]],
-  ['Mobile Barber — Kofi', 'hair-beauty', 'East Legon', 'Fresh cuts at your home or office', true, 1, 'weekday',
+  ['Mobile Barber — Kofi', 'hair-beauty', 'Kasoa', 'Fresh cuts at your home or office', true, 1, 'weekday',
     [['Home-visit haircut', 45, 100], ['Haircut & beard (home visit)', 60, 130], ['Group booking (up to 4)', 120, 350]]],
-  ["Gentleman's Chair", 'hair-beauty', 'Jamestown', 'Hot towel shaves & classic grooming', false, 2, 'barber',
+  ["Gentleman's Chair", 'hair-beauty', 'Adum', 'Hot towel shaves & classic grooming', false, 2, 'barber',
     [['Hot towel shave', 40, 80], ['Beard sculpt', 30, 60], ['Scalp treatment', 30, 80], ['Executive cut', 50, 120]]],
   ['Fade Factory', 'hair-beauty', 'Madina', 'Skin fades, designs and colour', false, 2, 'late',
     [['Skin fade', 40, 60], ['Hair design / art', 20, 30], ['Hair dye', 45, 80]]],
 
-  ['Nhyira Spa', 'spa-wellness', 'Labone', 'Massage & bodywork in a calm space', false, 2, 'late',
+  ['Nhyira Spa', 'spa-wellness', 'Ahodwo', 'Massage & bodywork in a calm space', false, 2, 'late',
     [['Swedish massage (60 min)', 60, 350], ['Deep tissue massage (60 min)', 60, 400], ['Hot stone massage (90 min)', 90, 550], ['Couples massage', 60, 700]]],
   ['Shea Glow Facial Studio', 'spa-wellness', 'Dansoman', 'Shea butter facials and results-driven skin treatments', false, 1, 'salon',
     [['Signature shea facial', 60, 300], ['Hydrating facial', 60, 450], ['Acne clearing treatment', 45, 280]]],
-  ['Mobile Massage by Efua', 'spa-wellness', 'Osu', 'Licensed massage therapist — I bring the table', true, 1, 'late',
+  ['Mobile Massage by Efua', 'spa-wellness', 'Ridge', 'Licensed massage therapist — I bring the table', true, 1, 'late',
     [['Home massage (60 min)', 60, 400], ['Home massage (90 min)', 90, 550], ['Prenatal massage', 60, 420]]],
   ['Breathe Wellness', 'spa-wellness', 'Spintex', 'Private yoga, sound baths and body treatments', false, 1, 'weekday',
     [['Private yoga session', 60, 250], ['Sound bath', 60, 150], ['Body scrub & wrap', 75, 350]]],
-  ['Core Fit Training — Coach Yaw', 'spa-wellness', 'Dansoman', 'Personal training at the gym, the park or your home', true, 1, 'weekday',
+  ['Core Fit Training — Coach Yaw', 'spa-wellness', 'Achimota / Dome', 'Personal training at the gym, the park or your home', true, 1, 'weekday',
     [['1-on-1 training session', 60, 150], ['Partner session (2 people)', 60, 250], ['Fitness assessment', 45, 100]]],
 
-  ['Spotless Home Cleaning', 'laundry-cleaning', 'East Legon', 'Reliable, vetted cleaners — supplies included', true, 3, 'weekday',
+  ['Spotless Home Cleaning', 'laundry-cleaning', 'Tema', 'Reliable, vetted cleaners — supplies included', true, 3, 'weekday',
     [['Standard clean (2 hrs)', 120, 250], ['Deep clean (4 hrs)', 240, 500], ['Move-out clean', 300, 700]]],
-  ['Fresh Fold Laundry', 'laundry-cleaning', 'Legon', 'Wash, dry, iron and fold — we pick up and drop off', true, 2, 'late',
+  ['Fresh Fold Laundry', 'laundry-cleaning', 'North Legon', 'Wash, dry, iron and fold — we pick up and drop off', true, 2, 'late',
     [['Wash & fold (per bag)', 60, 60], ['Wash, iron & fold (per bag)', 90, 90], ['Duvet & bedding wash', 60, 80]]],
 
-  ['FlowRight Plumbing', 'home-repair', 'Madina', 'Leaks, blockages, polytanks and installs — fixed fast', true, 1, 'weekday',
+  ['FlowRight Plumbing', 'home-repair', 'Adenta', 'Leaks, blockages, polytanks and installs — fixed fast', true, 1, 'weekday',
     [['Call-out & diagnosis', 60, 150], ['Leak repair', 90, 300], ['Drain unblocking', 60, 250]]],
-  ['Bright Spark Electrical', 'home-repair', 'Dansoman', 'Certified electrician for homes & small shops', true, 1, 'weekday',
+  ['Bright Spark Electrical', 'home-repair', 'Kaneshie', 'Certified electrician for homes & small shops', true, 1, 'weekday',
     [['Electrical safety inspection', 60, 200], ['Socket / switch install', 45, 120], ['Light fitting', 60, 150]]],
-  ['HandyPro Fix-It', 'home-repair', 'Jamestown', 'Carpentry, door locks, TV mounting and odd jobs', true, 2, 'weekday',
+  ['HandyPro Fix-It', 'home-repair', 'Suame', 'Carpentry, door locks, TV mounting and odd jobs', true, 2, 'weekday',
     [['Handyman (1 hr)', 60, 120], ['TV wall mounting', 60, 150], ['Furniture assembly', 90, 200]]],
 
-  ['CleanBin Waste Collection', 'waste-collection', 'Legon', 'Borla pickup for homes, hostels and shops', true, 3, 'weekday',
+  ['CleanBin Waste Collection', 'waste-collection', 'Ashaiman', 'Borla pickup for homes, hostels and shops', true, 3, 'weekday',
     [['One-off borla pickup', 30, 40], ['Bulk waste removal', 90, 250], ['Compound clean-up', 120, 350]]],
 
-  ['Frame by Kwame Photography', 'photo-video', 'Labone', 'Portraits, headshots and event coverage', true, 1, 'late',
+  ['Frame by Kwame Photography', 'photo-video', 'Bantama', 'Portraits, headshots and event coverage', true, 1, 'late',
     [['Headshots (30 min)', 30, 400], ['Portrait session', 60, 700], ['Event coverage (2 hrs)', 120, 1500]]],
-  ['Reel Moments Video', 'photo-video', 'Osu', 'Event videography, reels and graduation shoots', true, 1, 'events',
+  ['Reel Moments Video', 'photo-video', 'Dzorwulu', 'Event videography, reels and graduation shoots', true, 1, 'events',
     [['Event video (3 hrs)', 180, 2500], ['Short promo / reel', 90, 800], ['Graduation photo + video', 120, 900]]],
 
-  ['SwiftMove Relocations', 'moving-delivery', 'Madina', 'Home and hostel-to-hostel moves with truck and crew', true, 2, 'weekday',
+  ['SwiftMove Relocations', 'moving-delivery', 'KNUST', 'Home and hostel-to-hostel moves with truck and crew', true, 2, 'weekday',
     [['Hostel-to-hostel move', 90, 200], ['Room or studio move', 180, 600], ['Luggage transport', 60, 120]]],
-  ['Okada Express Errands', 'moving-delivery', 'Osu', 'Same-day okada delivery and errands across town', true, 4, 'daily',
+  ['Okada Express Errands', 'moving-delivery', 'Circle', 'Same-day okada delivery and errands across town', true, 4, 'daily',
     [['Same-day delivery (in town)', 30, 25], ['Market errand (Makola run)', 60, 50], ['Document drop-off', 30, 30]]],
 
-  ['FixIt Appliance Repair', 'appliance-phone-repair', 'Spintex', 'Washers, fridges and ovens repaired at home', true, 1, 'weekday',
+  ['FixIt Appliance Repair', 'appliance-phone-repair', 'Lakeside', 'Washers, fridges and ovens repaired at home', true, 1, 'weekday',
     [['Appliance diagnosis', 30, 100], ['Washing machine repair', 60, 350], ['Fridge repair', 60, 400]]],
-  ['PhoneDoc Repairs', 'appliance-phone-repair', 'Jamestown', 'Screens, batteries and charging ports fixed while you wait', false, 2, 'late',
+  ['PhoneDoc Repairs', 'appliance-phone-repair', 'Kejetia', 'Screens, batteries and charging ports fixed while you wait', false, 2, 'late',
     [['Screen replacement', 60, 450], ['Battery replacement', 45, 200], ['Charging port repair', 45, 120]]],
 
-  ['DJ Vybz Entertainment', 'events-entertainment', 'Labone', 'DJ, MC and sound for birthdays, weddings and outdoorings', true, 1, 'events',
+  ['DJ Vybz Entertainment', 'events-entertainment', 'Lapaz', 'DJ, MC and sound for birthdays, weddings and outdoorings', true, 1, 'events',
     [['Party DJ (3 hrs)', 180, 1200], ['Wedding DJ & sound (5 hrs)', 300, 3000], ['MC / host', 240, 1500]]],
   ['Petals & Pearls Events', 'events-entertainment', 'East Legon', 'Decor and planning for birthdays, outdoorings and weddings', true, 1, 'events',
     [['Planning consultation', 30, 0], ['Birthday decor setup', 120, 1500], ['Outdooring decor & setup', 180, 1800], ['Wedding day coordination', 480, 6000]]],
 
-  ['GreenEdge Gardening', 'gardening-outdoor', 'Spintex', 'Lawn mowing, hedge trimming and compound weeding', true, 2, 'weekday',
+  ['GreenEdge Gardening', 'gardening-outdoor', 'Oyarifa', 'Lawn mowing, hedge trimming and compound weeding', true, 2, 'weekday',
     [['Lawn mowing', 60, 150], ['Hedge trimming', 90, 200], ['Garden makeover (half day)', 240, 800]]],
 
-  ['BrightMinds Tutoring', 'student-academic', 'Legon', 'Private lessons, study coaching and WASSCE/BECE prep', true, 3, 'late',
+  ['BrightMinds Tutoring', 'student-academic', 'Ayigya', 'Private lessons, study coaching and WASSCE/BECE prep', true, 3, 'late',
     [['Private lesson (1 hr)', 60, 100], ['WASSCE exam prep (2 hrs)', 120, 180], ['Study coaching', 60, 120]]],
-  ['Scribe Transcription', 'student-academic', 'Legon', 'Lectures, interviews and research audio typed up fast', false, 2, 'weekday',
+  ['Scribe Transcription', 'student-academic', 'North Legon', 'Lectures, interviews and research audio typed up fast', false, 2, 'weekday',
     [['Transcription (up to 30 min audio)', 60, 80], ['Transcription (up to 1 hr audio)', 120, 150]]],
 ];
 
@@ -229,7 +244,7 @@ function seed() {
     }
   });
 
-  return { providers, bookings: [], reviews };
+  return { providers, bookings: [], reviews, favorites: [] };
 }
 
-module.exports = { CATEGORIES, COLORS, seed, slugify };
+module.exports = { CATEGORIES, REGIONS, COLORS, seed, slugify };

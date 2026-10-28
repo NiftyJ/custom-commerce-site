@@ -1,45 +1,84 @@
 // Nearbook — zero-dependency marketplace server.
-// Serves the SPA from /public and a JSON API backed by data/db.json.
+// Serves the SPA from /public and a JSON API. Data is stored in Upstash Redis when it's
+// configured, otherwise in data/db.json (see storage.js).
 
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { CATEGORIES, COLORS, seed, slugify } = require('./seed');
+
+// Secrets for local development go in .env, which is never committed (see .gitignore).
+// On Vercel, set them under Project Settings → Environment Variables instead.
+loadEnvFile(path.join(__dirname, '.env'));
+
+const { CATEGORIES, REGIONS, COLORS, seed, slugify } = require('./seed');
+const { createStorage } = require('./storage');
+const whatsapp = require('./whatsapp');
 
 const PORT = Number(process.env.PORT) || 3000;
 const BRAND = process.env.BRAND || 'Nearbook';
 const CURRENCY = process.env.CURRENCY || 'GHS';
 const DEPOSIT_PERCENT = Math.min(Math.max(Number(process.env.DEPOSIT_PERCENT) || 30, 1), 100);
 const PUBLIC_DIR = path.join(__dirname, 'public');
-// Serverless hosts (Vercel) only allow writes to the temp dir, and data there doesn't survive cold starts.
-const DATA_DIR = process.env.DATA_DIR || (process.env.VERCEL ? path.join(os.tmpdir(), 'nearbook') : path.join(__dirname, 'data'));
-const DATA_FILE = path.join(DATA_DIR, 'db.json');
+// Serverless hosts (Vercel) only allow file writes to the temp dir, and data there doesn't survive
+// cold starts. That's why the live site needs Upstash Redis.
+const TEMP_FILE = !process.env.DATA_DIR && Boolean(process.env.VERCEL);
+const DATA_DIR = process.env.DATA_DIR || (TEMP_FILE ? path.join(os.tmpdir(), 'nearbook') : path.join(__dirname, 'data'));
+const storage = createStorage({ dataFile: path.join(DATA_DIR, 'db.json'), temporary: TEMP_FILE });
+const AREAS = REGIONS.flatMap((r) => r.areas);
 const SLOT_STEP = 30; // minutes between bookable start times
 const LEAD_TIME = 60; // minutes of notice required for same-day bookings
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
-// ---------- storage ----------
-
-function save(data) {
-  const tmp = DATA_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-  fs.renameSync(tmp, DATA_FILE);
-}
-
-function load() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-    const data = seed();
-    save(data);
-    console.log(`Seeded demo data into ${DATA_FILE}`);
-    return data;
+function loadEnvFile(file) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return; }
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Za-z_]\w*)\s*=\s*(.*?)\s*$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
   }
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
 }
 
-const db = load();
+// ---------- storage ----------
+// Each API request works on its own fresh copy of the database in `db`. Handlers are synchronous,
+// so no other request can swap `db` while one runs. A handler that changes data calls changed();
+// run() then saves it, and re-runs the handler on fresh data if another request saved first.
+
+let db = null;
+let dirty = false;
+let outbox = []; // WhatsApp messages queued by the current handler, sent once its changes are saved
+const changed = () => { dirty = true; };
+
+async function loadDb() {
+  const snap = await storage.read();
+  if (!snap.raw) {
+    if (await storage.write(JSON.stringify(seed()), snap.version)) console.log(`Seeded demo data into ${storage.name}`);
+    return loadDb();
+  }
+  const data = JSON.parse(snap.raw);
+  data.favorites = data.favorites || [];
+  return { data, version: snap.version };
+}
+
+async function run(handler, ctx) {
+  for (let attempt = 1; ; attempt++) {
+    const { data, version } = await loadDb();
+    db = data;
+    dirty = false;
+    outbox = [];
+    const result = handler(ctx);
+    const mine = { data: db, dirty, outbox };
+    if (mine.dirty && !(await storage.write(JSON.stringify(mine.data), version))) {
+      if (attempt === 10) fail(503, 'The site is busy right now. Please try again.');
+      // Someone else saved first: wait a moment (random, so retries don't collide again) and redo this request on their data.
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 25 * attempt));
+      continue;
+    }
+    await whatsapp.sendAll(mine.outbox);
+    return result;
+  }
+}
 
 // ---------- helpers ----------
 
@@ -55,13 +94,17 @@ const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && 
 const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const toHHMM = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const pad = (n) => String(n).padStart(2, '0');
+const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const newId = (prefix) => `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
 // Whole-unit deposit taken at booking. public/app.js uses the same formula to show it at checkout.
 const depositFor = (price) => Math.min(price, Math.ceil(Math.round(price * DEPOSIT_PERCENT) / 100));
+const siteUrl = (req) => (process.env.SITE_URL
+  || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : `http://${req.headers.host}`)).replace(/\/+$/, '');
+const dashboardUrl = (req, p) => `${siteUrl(req)}/#/dashboard/${p.id}?key=${encodeURIComponent(p.manageKey)}`;
 
 function nowLocal() {
   const d = new Date();
-  return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, min: d.getHours() * 60 + d.getMinutes() };
+  return { date: localDate(d), min: d.getHours() * 60 + d.getMinutes() };
 }
 
 function weekday(date) {
@@ -87,7 +130,7 @@ function findProvider(idOrSlug) {
 function publicProvider(p) {
   const reviews = db.reviews.filter((r) => r.providerId === p.id);
   const rating = reviews.length ? Math.round((reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) * 10) / 10 : null;
-  const { manageKey, ...rest } = p;
+  const { manageKey, linkSentAt, ...rest } = p;
   return { ...rest, rating, reviewCount: reviews.length, priceFrom: Math.min(...p.services.map((s) => s.price)) };
 }
 
@@ -136,6 +179,24 @@ function requireManager(req, id) {
   return p;
 }
 
+// ---------- WhatsApp messages ----------
+// Template names and wording are listed in the README; the params below fill {{1}}, {{2}}, …
+
+function notify(phone, template, params) {
+  const to = whatsapp.toWhatsApp(phone);
+  if (to) outbox.push({ to, template, params });
+}
+
+const fmtMoney = (n) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: CURRENCY, currencyDisplay: 'narrowSymbol', minimumFractionDigits: n % 1 ? 2 : 0 }).format(n);
+function fmtWhen(b) {
+  const [y, m, d] = b.date.split('-').map(Number);
+  const [h, min] = b.time.split(':').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, h, min)).toLocaleString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+}
+const firstName = (b) => b.customer.name.split(/\s+/)[0];
+const whereText = (b, p) => (b.location === 'home' ? `Home visit, ${b.address}` : p.address || p.area);
+const payText = (b) => (b.payment.method === 'none' ? 'Free' : `${fmtMoney(b.payment.deposit)} deposit paid, ${fmtMoney(b.payment.balance)} after the service`);
+
 // ---------- API routes ----------
 
 const routes = [];
@@ -146,27 +207,43 @@ route('GET', '/api/config', () => ({
   brand: BRAND,
   currency: CURRENCY,
   depositPercent: DEPOSIT_PERCENT,
+  whatsapp: whatsapp.enabled(),
+  countryCode: whatsapp.countryCode(),
   categories: CATEGORIES.map((c) => ({ ...c, count: db.providers.filter((p) => p.category === c.id).length })),
-  areas: [...new Set(db.providers.map((p) => p.area))].sort(),
+  regions: REGIONS,
+  areas: AREAS,
+}));
+
+// Open /api/health after deploying to check the database and WhatsApp are connected.
+route('GET', '/api/health', () => ({
+  ok: true,
+  storage: storage.name,
+  dataIsSaved: storage.durable,
+  whatsapp: whatsapp.enabled() ? 'on' : 'dry run (messages are only written to the server log)',
+  counts: { providers: db.providers.length, bookings: db.bookings.length, reviews: db.reviews.length, favorites: db.favorites.length },
 }));
 
 route('GET', '/api/providers', ({ query }) => {
   const terms = (query.get('q') || '').toLowerCase().split(/\s+/).filter(Boolean);
   const category = query.get('category');
   const area = query.get('area');
+  const region = REGIONS.find((r) => r.name === area); // a region name covers all of its areas
+  const ids = query.get('ids') ? new Set(query.get('ids').split(',')) : null;
   const homeVisit = query.get('homeVisit') === '1';
   const maxPrice = Number(query.get('maxPrice')) || null;
   const sort = query.get('sort') || 'rating';
   const limit = Math.min(Number(query.get('limit')) || 100, 100);
 
   let list = db.providers
+    .filter((p) => !ids || ids.has(p.id))
     .filter((p) => !category || p.category === category)
-    .filter((p) => !area || p.area === area)
+    .filter((p) => !area || (region ? region.areas.includes(p.area) : p.area === area))
     .filter((p) => !homeVisit || p.homeVisit)
     .filter((p) => {
       if (!terms.length) return true;
       const cat = CATEGORIES.find((c) => c.id === p.category);
-      const hay = [p.name, p.tagline, p.area, cat && cat.name, ...p.services.map((s) => s.name)].join(' ').toLowerCase();
+      const reg = REGIONS.find((r) => r.areas.includes(p.area));
+      const hay = [p.name, p.tagline, p.area, reg && reg.name, cat && cat.name, ...p.services.map((s) => s.name)].join(' ').toLowerCase();
       return terms.every((t) => hay.includes(t));
     })
     .map(publicProvider)
@@ -199,14 +276,27 @@ route('GET', '/api/providers/:id/availability', ({ params, query }) => {
   return { date, slots: availableSlots(p, service, date) };
 });
 
-route('POST', '/api/providers', ({ body }) => {
+// Saved (hearted) providers live in the visitor's browser. The server only keeps an anonymous
+// per-device record so businesses can see how many people saved them.
+route('POST', '/api/providers/:id/favorite', ({ params, body }) => {
+  const p = findProvider(params.id);
+  const device = str(body.device, 64);
+  if (!/^[\w-]{8,64}$/.test(device)) fail(400, 'Invalid device id');
+  const i = db.favorites.findIndex((f) => f.providerId === p.id && f.device === device);
+  if (body.saved && i < 0) { db.favorites.push({ providerId: p.id, device, createdAt: new Date().toISOString() }); changed(); }
+  if (!body.saved && i >= 0) { db.favorites.splice(i, 1); changed(); }
+  return { saved: !!body.saved };
+});
+
+route('POST', '/api/providers', ({ req, body }) => {
   const name = str(body.name, 80);
   if (name.length < 2) fail(400, 'Business name is required');
   if (!CATEGORIES.some((c) => c.id === body.category)) fail(400, 'Choose a category');
   const area = str(body.area, 60);
-  if (!area) fail(400, 'Area / neighbourhood is required');
+  if (!AREAS.includes(area)) fail(400, 'Choose your area from the list');
   const phone = str(body.phone, 30);
   if (!phone) fail(400, 'Phone number is required');
+  if (body.whatsapp && !whatsapp.toWhatsApp(phone)) fail(400, 'Enter a valid WhatsApp number, e.g. 024 123 4567');
 
   if (!Array.isArray(body.services) || !body.services.length) fail(400, 'Add at least one service');
   if (body.services.length > 30) fail(400, 'Up to 30 services allowed');
@@ -243,6 +333,7 @@ route('POST', '/api/providers', ({ body }) => {
     area,
     address: str(body.address, 200),
     phone,
+    whatsapp: !!body.whatsapp,
     homeVisit: !!body.homeVisit,
     capacity: Math.min(Math.max(Math.round(Number(body.capacity)) || 1, 1), 20),
     hours,
@@ -253,7 +344,9 @@ route('POST', '/api/providers', ({ body }) => {
     createdAt: new Date().toISOString(),
   };
   db.providers.push(provider);
-  save(db);
+  changed();
+  // Send the private dashboard link to their WhatsApp so they can't lose it.
+  if (provider.whatsapp) notify(provider.phone, 'dashboard_link', [provider.name, dashboardUrl(req, provider)]);
   return { provider: publicProvider(provider), manageKey: provider.manageKey };
 });
 
@@ -264,9 +357,10 @@ route('POST', '/api/bookings', ({ body }) => {
   if (!availableSlots(p, service, body.date).includes(body.time)) fail(409, 'Sorry — that time was just taken. Please pick another slot.');
 
   const c = body.customer || {};
-  const customer = { name: str(c.name, 80), email: str(c.email, 120).toLowerCase(), phone: str(c.phone, 30) };
+  const customer = { name: str(c.name, 80), email: str(c.email, 120).toLowerCase(), phone: str(c.phone, 30), whatsapp: c.whatsapp === true };
   if (!customer.name) fail(400, 'Your name is required');
   if (!isEmail(customer.email)) fail(400, 'A valid email is required');
+  if (customer.whatsapp && !whatsapp.toWhatsApp(customer.phone)) fail(400, 'Enter a valid phone number for WhatsApp updates, e.g. 024 123 4567');
 
   const location = body.location === 'home' ? 'home' : 'venue';
   if (location === 'home' && !p.homeVisit) fail(400, 'This provider does not offer home visits');
@@ -301,7 +395,13 @@ route('POST', '/api/bookings', ({ body }) => {
     createdAt: new Date().toISOString(),
   };
   db.bookings.push(booking);
-  save(db);
+  changed();
+  if (customer.whatsapp) {
+    notify(customer.phone, 'booking_confirmed', [firstName(booking), service.name, p.name, fmtWhen(booking), whereText(booking, p), payText(booking), booking.ref]);
+  }
+  if (p.whatsapp) {
+    notify(p.phone, 'new_booking', [p.name, customer.name, customer.phone || customer.email, service.name, fmtWhen(booking), whereText(booking, p), payText(booking), booking.ref]);
+  }
   return customerBooking(booking);
 });
 
@@ -326,7 +426,9 @@ route('POST', '/api/bookings/:id/cancel', ({ params, body }) => {
   if (!customerBooking(b).canCancel) fail(400, 'This booking can no longer be cancelled');
   b.status = 'cancelled';
   if (b.payment.status === 'deposit_paid') b.payment.status = 'refunded';
-  save(db);
+  changed();
+  const p = db.providers.find((x) => x.id === b.providerId);
+  if (p && p.whatsapp) notify(p.phone, 'booking_cancelled_by_customer', [b.customer.name, b.serviceName, fmtWhen(b), b.ref]);
   return customerBooking(b);
 });
 
@@ -346,7 +448,7 @@ route('POST', '/api/bookings/:id/review', ({ params, body }) => {
     createdAt: new Date().toISOString(),
   });
   b.reviewed = true;
-  save(db);
+  changed();
   return customerBooking(b);
 });
 
@@ -356,7 +458,8 @@ route('GET', '/api/manage/:id', ({ req, params }) => {
     .filter((b) => b.providerId === p.id)
     .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
     .map((b) => ({ ...b, started: hasStarted(b) }));
-  return { provider: publicProvider(p), bookings };
+  const favorites = db.favorites.filter((f) => f.providerId === p.id).length;
+  return { provider: publicProvider(p), bookings, favorites };
 });
 
 route('POST', '/api/manage/:id/bookings/:bid', ({ req, params, body }) => {
@@ -369,8 +472,48 @@ route('POST', '/api/manage/:id/bookings/:bid', ({ req, params, body }) => {
   // A no-show keeps the deposit; completing means the balance was collected after the service.
   if (b.status === 'completed' && b.payment.status === 'deposit_paid') b.payment.status = 'paid';
   if (b.status === 'cancelled' && b.payment.status === 'deposit_paid') b.payment.status = 'refunded';
-  save(db);
+  changed();
+  if (b.status === 'cancelled' && b.customer.whatsapp) {
+    notify(b.customer.phone, 'booking_cancelled_by_provider', [firstName(b), p.name, b.serviceName, fmtWhen(b), b.ref]);
+  }
   return { ...b, started: hasStarted(b) };
+});
+
+// Lost dashboard link: WhatsApp it to the number on the listing. The reply is the same whether
+// or not the number matches, so this can't be used to find out who is listed.
+route('POST', '/api/manage/recover', ({ req, body }) => {
+  if (!whatsapp.enabled()) fail(503, 'Sending links by WhatsApp is not available yet.');
+  const to = whatsapp.toWhatsApp(str(body.phone, 30));
+  if (!to) fail(400, 'Enter the phone number on your listing, e.g. 024 123 4567');
+  const now = Date.now();
+  for (const p of db.providers) {
+    if (!p.whatsapp || whatsapp.toWhatsApp(p.phone) !== to) continue;
+    if (p.linkSentAt && now - Date.parse(p.linkSentAt) < 10 * 60e3) continue; // at most once every 10 minutes
+    p.linkSentAt = new Date(now).toISOString();
+    changed();
+    notify(p.phone, 'dashboard_link', [p.name, dashboardUrl(req, p)]);
+  }
+  return { ok: true };
+});
+
+// Vercel Cron calls this every evening (see vercel.json) to remind customers about tomorrow's bookings.
+// Vercel sends CRON_SECRET as a bearer token, so nobody else can trigger it.
+route('GET', '/api/cron/reminders', ({ req }) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || !safeEqual(req.headers.authorization, `Bearer ${secret}`)) fail(401, 'Unauthorized');
+  const tomorrow = localDate(new Date(Date.now() + 864e5));
+  let reminders = 0;
+  for (const b of db.bookings) {
+    if (b.date !== tomorrow || b.status !== 'confirmed' || b.remindedAt || !b.customer.whatsapp) continue;
+    const p = db.providers.find((x) => x.id === b.providerId);
+    if (!p) continue;
+    b.remindedAt = new Date().toISOString();
+    changed();
+    const balance = b.payment.method === 'none' ? 'Nothing, it\'s free' : fmtMoney(b.payment.balance);
+    notify(b.customer.phone, 'booking_reminder', [firstName(b), b.serviceName, p.name, fmtWhen(b), whereText(b, p), balance, b.ref]);
+    reminders++;
+  }
+  return { reminders };
 });
 
 // ---------- HTTP plumbing ----------
@@ -437,7 +580,7 @@ const server = http.createServer(async (req, res) => {
       if (!m) continue;
       const body = req.method === 'POST' ? await readBody(req) : {};
       const params = Object.fromEntries(Object.entries(m.groups || {}).map(([k, v]) => [k, decodeURIComponent(v)]));
-      return send(res, 200, await r.handler({ req, params, query: url.searchParams, body: body || {} }));
+      return send(res, 200, await run(r.handler, { req, params, query: url.searchParams, body: body || {} }));
     }
     fail(404, 'Not found');
   } catch (err) {
@@ -447,4 +590,9 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => console.log(`${BRAND} running at http://localhost:${PORT}`));
+server.listen(PORT, () => {
+  console.log(`${BRAND} running at http://localhost:${PORT}`);
+  console.log(`Storage: ${storage.name}. WhatsApp: ${whatsapp.enabled() ? 'on' : 'dry run'}.`);
+  if (!storage.durable) console.warn('WARNING: new sign-ups and bookings will be lost when this server sleeps. Connect Upstash Redis (see README).');
+  loadDb().catch((err) => console.error(`Could not load the database: ${err.message}`));
+});
