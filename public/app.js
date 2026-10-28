@@ -235,9 +235,9 @@ async function homeView() {
           <h1>Book <em>local</em> pros without the back&#8209;and&#8209;forth.</h1>
           <p class="lead">Braiders and barbers, laundry, plumbers, okada errands, DJs, tutors and more. See real prices and open times, pick a slot and secure it with a small deposit. Many of these providers don't have a website of their own.</p>
           <form class="searchbar" id="heroSearch">
-            <div class="field">${icon('search')}<input name="q" placeholder="What do you need? e.g. braids, laundry, DJ" aria-label="Service"></div>
-            <div class="field">${icon('pin')}<select name="area" aria-label="Area"><option value="">Any area</option>${areaOptions()}</select></div>
-            <button class="btn">Search</button>
+            <div class="field">${icon('search')}<input name="q" placeholder="What service do you need?" aria-label="Service"></div>
+            <div class="field">${icon('pin')}<select name="area" aria-label="Area"><option value="">Choose your area</option>${areaOptions()}</select></div>
+            <button class="btn">Explore Services</button>
           </form>
           <div class="popular"><span class="muted small">Popular:</span>${popular.map((t) => `<a href="#/search?q=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div>
         </div>

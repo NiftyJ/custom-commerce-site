@@ -155,7 +155,12 @@ textarea { resize: vertical; min-height: 84px; }
 .hero h1 { font-size: clamp(2.5rem, 5.4vw, 4.2rem); font-weight: 700; max-width: 14ch; letter-spacing: -0.035em; line-height: 1.02; margin-top: 20px; }
 .hero h1 em { font-style: normal; color: var(--gold); }
 .hero p.lead { font-size: 1.12rem; color: rgb(255 248 234 / 82%); max-width: 50ch; margin-top: 18px; }
-.searchbar { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 8px; background: #fff; color: var(--ink); padding: 8px; border-radius: 18px; box-shadow: 0 20px 50px rgb(0 0 0 / 28%); max-width: 760px; margin-top: 28px; }
+.searchbar { display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 8px; background: #fff; color: var(--ink); padding: 8px; border-radius: 18px; box-shadow: 0 20px 50px rgb(0 0 0 / 28%); max-width: 760px; margin-top: 28px; }
+/* Beside the hero photo the bar is too narrow for both fields and the button in one row, so the button goes underneath. */
+@media (min-width: 961px) {
+  .searchbar { grid-template-columns: 1fr 1fr; }
+  .searchbar .btn { grid-column: 1 / -1; }
+}
 .searchbar .btn { background: var(--gold); color: var(--ink); }
 .searchbar .btn:hover { background: var(--gold-ink); }
 
