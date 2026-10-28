@@ -399,7 +399,7 @@ async function searchView(_, params) {
           <h3>Filters</h3>
           <input type="hidden" name="category" value="${esc(params.get('category') || '')}">
           <label>Keyword<input name="q" value="${esc(params.get('q') || '')}" placeholder="e.g. silk press"></label>
-          <label>Area<select name="area"><option value="">Any area</option>${areaOptions(params.get('area'))}</select></label>
+          <label>Area<select name="area"><option value="">Choose your area</option>${areaOptions(params.get('area'))}</select></label>
           <label>Starting price<select name="maxPrice"><option value="">Any price</option>${[50, 100, 250, 500].map((n) => `<option value="${n}" ${sel('maxPrice', String(n))}>Up to ${money(n)}</option>`).join('')}</select></label>
           <label class="check"><input type="checkbox" name="homeVisit" value="1" ${params.get('homeVisit') === '1' ? 'checked' : ''}> Comes to me (home visits)</label>
           <label>Sort by<select name="sort">
